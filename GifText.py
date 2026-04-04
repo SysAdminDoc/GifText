@@ -1,5 +1,5 @@
 """
-GifText v1.0.0 - Animated GIF Text Editor
+GifText v1.1.0 - Animated GIF Text Editor
 Full-featured meme text animator with keyframe animation, onion skinning,
 undo/redo, project save/load, drag-resize, text presets, and more.
 """
@@ -46,7 +46,7 @@ from PyQt6.QtGui import (
 from PIL import Image, ImageDraw, ImageFont
 import io
 
-VERSION = "1.0.0"
+VERSION = "1.1.0"
 
 LAYER_COLORS = [
     "#89b4fa", "#a6e3a1", "#f9e2af", "#f38ba8", "#cba6f7",
@@ -341,8 +341,8 @@ class GifCanvas(QWidget):
     text_clicked = pyqtSignal(int)
     frame_step = pyqtSignal(int)
     canvas_clicked = pyqtSignal(float, float)
-    resize_delta = pyqtSignal(float)  # drag-resize: delta in relative units
-    zoom_changed = pyqtSignal(float)
+    drag_ended = pyqtSignal()          # snapshot undo after drag
+    size_changed = pyqtSignal(int)     # font size delta from drag-resize
 
     def __init__(self):
         super().__init__()
@@ -361,6 +361,9 @@ class GifCanvas(QWidget):
         self._gif_rect = QRectF()
         self._dragging = False
         self._resizing = False
+        self._resize_start_y = 0
+        self._resize_start_size = 0
+        self._did_drag = False
         self._hovering_id = -1
         self._rendered = QPixmap()
         self._zoom = 1.0
@@ -583,6 +586,30 @@ class GifCanvas(QWidget):
                 best_d = d; best = layer
         return best
 
+    def _check_resize_handle(self, mx, my):
+        """Check if mouse is near bottom-right resize handle of selected layer."""
+        if self._selected_id < 0 or self._gif_rect.width() == 0:
+            return False
+        for layer in self._layers:
+            if layer.id != self._selected_id:
+                continue
+            kf = layer.get_interpolated(self._current_frame)
+            scale = self._gif_rect.width() / max(1, self._base_pixmap.width()) if self._base_pixmap else 1
+            font = QFont(layer.font_family, max(4, int(kf.font_size * scale)))
+            font.setBold(layer.bold)
+            fm = QFontMetrics(font)
+            text = layer.text.upper() if layer.uppercase else layer.text
+            lines = text.split('\n')
+            max_w = max(fm.horizontalAdvance(l) for l in lines) if lines else 0
+            total_h = fm.height() * len(lines)
+            tx = self._gif_rect.x() + kf.x * self._gif_rect.width()
+            ty = self._gif_rect.y() + kf.y * self._gif_rect.height()
+            hx = tx + max_w / 2 + 8
+            hy = ty + total_h / 2 + 8
+            if abs(mx - hx) < 12 and abs(my - hy) < 12:
+                return True
+        return False
+
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.MiddleButton:
             self._panning = True
@@ -592,9 +619,23 @@ class GifCanvas(QWidget):
             return
         if event.button() != Qt.MouseButton.LeftButton:
             return
-        rx, ry = self._rel_pos(event.pos().x(), event.pos().y())
+        mx, my = event.pos().x(), event.pos().y()
+        # Check resize handle first
+        if self._check_resize_handle(mx, my):
+            self._resizing = True
+            self._resize_start_y = my
+            # Find current font size
+            for layer in self._layers:
+                if layer.id == self._selected_id:
+                    kf = layer.get_interpolated(self._current_frame)
+                    self._resize_start_size = kf.font_size
+                    break
+            self.setCursor(QCursor(Qt.CursorShape.SizeFDiagCursor))
+            return
+        rx, ry = self._rel_pos(mx, my)
         if rx is None:
             return
+        self._did_drag = False
         hit = self._find_layer_at(rx, ry)
         if hit:
             self.text_clicked.emit(hit.id)
@@ -612,10 +653,21 @@ class GifCanvas(QWidget):
             self._render()
             self.update()
             return
+        if self._resizing:
+            dy = event.pos().y() - self._resize_start_y
+            new_size = max(8, min(200, self._resize_start_size + int(dy / 2)))
+            self.size_changed.emit(new_size)
+            return
         rx, ry = self._rel_pos(event.pos().x(), event.pos().y())
         if self._dragging and rx is not None:
+            self._did_drag = True
             self.text_moved.emit(rx, ry)
         elif not self._dragging:
+            # Hover: check resize handle vs text
+            if self._check_resize_handle(event.pos().x(), event.pos().y()):
+                if self.cursor().shape() != Qt.CursorShape.SizeFDiagCursor:
+                    self.setCursor(QCursor(Qt.CursorShape.SizeFDiagCursor))
+                return
             hit = self._find_layer_at(rx, ry)
             new_hover = hit.id if hit else -1
             if new_hover != self._hovering_id:
@@ -629,7 +681,13 @@ class GifCanvas(QWidget):
             self._panning = False
             self.setCursor(QCursor(Qt.CursorShape.ArrowCursor))
         elif event.button() == Qt.MouseButton.LeftButton:
+            if self._dragging and self._did_drag:
+                self.drag_ended.emit()
+            if self._resizing:
+                self.drag_ended.emit()
             self._dragging = False
+            self._resizing = False
+            self.setCursor(QCursor(Qt.CursorShape.ArrowCursor))
 
     def wheelEvent(self, event):
         mods = event.modifiers()
@@ -898,6 +956,12 @@ class GifTextApp(QMainWindow):
         self.btn_load.clicked.connect(self._load_gif)
         topbar.addWidget(self.btn_load)
 
+        # Recent files dropdown
+        self.btn_recent = QPushButton("Recent")
+        self.btn_recent.setFixedHeight(32)
+        self.btn_recent.clicked.connect(self._show_recent_menu)
+        topbar.addWidget(self.btn_recent)
+
         self.btn_export = QPushButton("Export GIF")
         self.btn_export.setObjectName("accent")
         self.btn_export.setFixedHeight(32)
@@ -972,6 +1036,8 @@ class GifTextApp(QMainWindow):
         self.canvas.text_clicked.connect(self._select_layer)
         self.canvas.frame_step.connect(self._step_frame)
         self.canvas.canvas_clicked.connect(self._on_canvas_click)
+        self.canvas.drag_ended.connect(self._snapshot)
+        self.canvas.size_changed.connect(self._on_canvas_resize)
         ll.addWidget(self.canvas, 1)
 
         # Timeline
@@ -1439,6 +1505,30 @@ class GifTextApp(QMainWindow):
     def _on_canvas_click(self, rx, ry):
         if self.selected_layer:
             self._on_text_moved(rx, ry)
+
+    def _on_canvas_resize(self, new_size):
+        if not self.selected_layer:
+            return
+        layer = self.selected_layer
+        kf = layer.get_keyframe_at(self.current_frame)
+        if kf is None:
+            kf = layer.get_interpolated(self.current_frame)
+            kf.frame = self.current_frame
+            layer.set_keyframe(kf)
+        kf.font_size = new_size
+        self._update_all()
+
+    def _show_recent_menu(self):
+        menu = QMenu(self)
+        if not self._recent_files:
+            menu.addAction("(no recent files)").setEnabled(False)
+        else:
+            for path in self._recent_files:
+                if os.path.exists(path):
+                    action = menu.addAction(os.path.basename(path))
+                    action.setToolTip(path)
+                    action.triggered.connect(lambda checked, p=path: self._load_gif_from_path(p))
+        menu.exec(self.btn_recent.mapToGlobal(QPointF(0, self.btn_recent.height()).toPoint()))
 
     def _toggle_onion(self, checked):
         self.canvas.onion_skin = checked
