@@ -1,5 +1,5 @@
 """
-GifText v1.2.0 - Animated GIF Text Editor
+GifText v1.2.1 - Animated GIF Text Editor
 Full-featured meme text animator with keyframe animation, onion skinning,
 undo/redo, project save/load, drag-resize, text presets, and more.
 """
@@ -48,7 +48,7 @@ import cv2
 import numpy as np
 import io
 
-VERSION = "1.2.0"
+VERSION = "1.2.1"
 
 LAYER_COLORS = [
     "#89b4fa", "#a6e3a1", "#f9e2af", "#f38ba8", "#cba6f7",
@@ -70,28 +70,28 @@ MEME_PRESETS = {
 
 DARK_STYLE = """
 QMainWindow, QWidget {
-    background-color: #060913;
-    color: #edf3ff;
-    font-family: "Segoe UI Variable Text", "Segoe UI", sans-serif;
+    background-color: #0d1117;
+    color: #eef2f7;
+    font-family: "Segoe UI";
     font-size: 13px;
 }
 QWidget#appRoot {
-    background-color: #060913;
+    background-color: #0d1117;
 }
 QFrame#workspaceHeader,
 QFrame#commandBar,
 QFrame#timeline,
 QFrame#canvasShell,
 QFrame#panelHeader {
-    background-color: #0d1321;
-    border: 1px solid #1b2437;
-    border-radius: 16px;
+    background-color: #151b24;
+    border: 1px solid #273142;
+    border-radius: 14px;
 }
 QFrame#commandBar {
-    background-color: #0a1120;
+    background-color: #121821;
 }
 QFrame#canvasShell {
-    background-color: #090d18;
+    background-color: #121821;
 }
 QFrame#panelHeader {
     padding: 10px 12px;
@@ -99,70 +99,91 @@ QFrame#panelHeader {
 QLabel#appTitle {
     font-size: 22px;
     font-weight: 700;
-    color: #f7faff;
+    color: #f7fafc;
 }
 QLabel#appSubtitle {
-    color: #8d9fbe;
+    color: #9ca7b8;
     font-size: 12px;
+}
+QLabel#workspaceMeta {
+    color: #c2d0e6;
+    font-size: 12px;
+    font-weight: 600;
+}
+QLabel#workspaceHint {
+    color: #8d99ab;
+    font-size: 11px;
 }
 QLabel#panelTitle {
     font-size: 17px;
     font-weight: 700;
-    color: #f7faff;
+    color: #f7fafc;
 }
 QLabel#panelSubtitle,
 QLabel#sectionNote {
-    color: #7c8ca8;
+    color: #97a3b6;
     font-size: 11px;
 }
-QLabel#infoBadge,
-QLabel#hintPill {
-    background-color: #09111f;
-    border: 1px solid #1e2941;
-    border-radius: 999px;
-    padding: 4px 10px;
+QFrame#selectionCard {
+    background-color: #111720;
+    border: 1px solid #2a3446;
+    border-radius: 14px;
 }
-QLabel#infoBadge {
-    color: #9db0d6;
+QLabel#selectionEyebrow {
+    color: #97a3b6;
+    font-size: 10px;
+    font-weight: 700;
 }
-QLabel#hintPill {
-    color: #89b4fa;
+QLabel#selectionTitle {
+    color: #f7fafc;
+    font-size: 18px;
+    font-weight: 700;
+}
+QLabel#selectionMeta {
+    color: #b2c0d6;
+    font-size: 11px;
+}
+QLabel#selectionState {
+    color: #76b0ff;
+    font-size: 11px;
+    font-weight: 600;
 }
 QPushButton {
-    background-color: #101a2d;
-    color: #edf3ff;
-    border: 1px solid #1d2942;
+    background-color: #1a2230;
+    color: #eef2f7;
+    border: 1px solid #2a3446;
     border-radius: 12px;
     padding: 8px 14px;
     font-weight: 600;
 }
 QPushButton:hover {
-    background-color: #16233a;
-    border-color: #34517f;
+    background-color: #212b3a;
+    border-color: #3b4a63;
 }
 QPushButton:pressed {
-    background-color: #1c2a45;
+    background-color: #253041;
 }
 QPushButton:disabled {
-    background-color: #0a1120;
-    color: #54637f;
-    border-color: #131b2d;
+    background-color: #111720;
+    color: #5c687b;
+    border-color: #202734;
 }
 QPushButton#accent {
-    background-color: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #89b4fa, stop:1 #67d6ff);
-    color: #07111f;
-    border: none;
+    background-color: #5ea2ff;
+    color: #081019;
+    border: 1px solid #5ea2ff;
 }
 QPushButton#accent:hover {
-    background-color: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #9cc0fb, stop:1 #7adfff);
+    background-color: #77b1ff;
+    border-color: #77b1ff;
 }
 QPushButton#ghost {
     background-color: transparent;
-    color: #a6b7d8;
-    border-color: #24324d;
+    color: #b7c3d8;
+    border-color: #2a3446;
 }
 QPushButton#ghost:hover {
-    background-color: #0d1526;
+    background-color: #141a23;
 }
 QPushButton#transport {
     min-width: 42px;
@@ -179,46 +200,47 @@ QPushButton#layerAction {
     font-size: 10px;
 }
 QPushButton#danger {
-    background-color: #2b1620;
-    color: #ffb7cb;
-    border-color: #5c243b;
+    background-color: #311921;
+    color: #ffcad8;
+    border-color: #6a3342;
 }
 QPushButton#danger:hover {
-    background-color: #361c29;
+    background-color: #3b1f29;
 }
 QPushButton#keyframeSet {
-    background-color: #14281b;
-    color: #b8efc6;
-    border-color: #2a6a43;
+    background-color: #1a2230;
+    color: #eef2f7;
+    border-color: #3d5f92;
 }
 QPushButton#keyframeSet:hover {
-    background-color: #1a3222;
+    background-color: #212b3a;
 }
 QPushButton#keyframeDel {
-    background-color: #2b1620;
-    color: #ffb7cb;
-    border-color: #5c243b;
+    background-color: #311921;
+    color: #ffcad8;
+    border-color: #6a3342;
 }
 QPushButton#preset {
     min-height: 34px;
     padding: 6px 10px;
     border-radius: 10px;
     font-size: 11px;
+    color: #d8e2ef;
 }
 QPlainTextEdit, QSpinBox, QDoubleSpinBox, QComboBox, QFontComboBox {
-    background-color: #08101e;
-    color: #f5f8ff;
-    border: 1px solid #1d2942;
+    background-color: #10161f;
+    color: #f3f6fb;
+    border: 1px solid #2a3446;
     border-radius: 10px;
     padding: 6px 10px;
-    selection-background-color: #24406c;
+    selection-background-color: #315f9e;
 }
 QPlainTextEdit:focus,
 QSpinBox:focus,
 QDoubleSpinBox:focus,
 QComboBox:focus,
 QFontComboBox:focus {
-    border-color: #89b4fa;
+    border-color: #5ea2ff;
 }
 QPlainTextEdit {
     font-size: 14px;
@@ -226,35 +248,35 @@ QPlainTextEdit {
 }
 QSlider::groove:horizontal {
     height: 6px;
-    background: #09111f;
+    background: #0f141b;
     border-radius: 999px;
 }
 QSlider::sub-page:horizontal {
-    background: #4c6fbe;
+    background: #5ea2ff;
     border-radius: 999px;
 }
 QSlider::handle:horizontal {
-    background: #eef5ff;
-    border: 2px solid #7bb3ff;
+    background: #f3f6fb;
+    border: 2px solid #5ea2ff;
     width: 18px;
     height: 18px;
     margin: -7px 0;
     border-radius: 9px;
 }
 QGroupBox {
-    border: 1px solid #1b2437;
-    border-radius: 16px;
+    border: 1px solid #273142;
+    border-radius: 14px;
     margin-top: 18px;
     padding: 16px 12px 12px 12px;
     font-weight: 700;
-    color: #d8e2f7;
-    background-color: #0d1321;
+    color: #d9e2ef;
+    background-color: #151b24;
 }
 QGroupBox::title {
     subcontrol-origin: margin;
     left: 12px;
     padding: 0 6px;
-    color: #8fb8ff;
+    color: #8cb6ff;
 }
 QScrollArea {
     border: none;
@@ -263,42 +285,42 @@ QScrollArea {
 QLabel#frameLabel {
     font-size: 15px;
     font-weight: 700;
-    color: #f5f8ff;
+    color: #f3f6fb;
     min-width: 110px;
-    background: #09111f;
-    border: 1px solid #1d2942;
+    background: #10161f;
+    border: 1px solid #2a3446;
     border-radius: 10px;
     padding: 6px 10px;
 }
 QStatusBar {
-    background-color: #050812;
-    color: #8593af;
+    background-color: #0d1117;
+    color: #8d99ab;
     font-size: 12px;
 }
 QCheckBox {
     spacing: 8px;
-    color: #cfdbf2;
+    color: #d2dbea;
 }
 QCheckBox::indicator {
     width: 16px;
     height: 16px;
     border-radius: 5px;
-    border: 1px solid #30405f;
-    background: #08101e;
+    border: 1px solid #364355;
+    background: #10161f;
 }
 QCheckBox::indicator:checked {
-    background: #89b4fa;
-    border-color: #89b4fa;
+    background: #5ea2ff;
+    border-color: #5ea2ff;
 }
 QSplitter::handle {
-    background: #09111f;
+    background: #151b24;
     width: 10px;
     margin: 10px 0;
 }
 QMenu {
-    background-color: #0d1321;
-    color: #edf3ff;
-    border: 1px solid #1d2942;
+    background-color: #151b24;
+    color: #eef2f7;
+    border: 1px solid #2a3446;
     border-radius: 10px;
     padding: 6px;
 }
@@ -307,7 +329,7 @@ QMenu::item {
     border-radius: 6px;
 }
 QMenu::item:selected {
-    background-color: #15223a;
+    background-color: #212b3a;
 }
 QScrollBar:vertical {
     background: transparent;
@@ -315,7 +337,7 @@ QScrollBar:vertical {
     margin: 4px;
 }
 QScrollBar::handle:vertical {
-    background: #1a253b;
+    background: #2a3446;
     min-height: 36px;
     border-radius: 5px;
 }
@@ -606,24 +628,24 @@ class GifCanvas(QWidget):
             p = QPainter(self)
             p.setRenderHint(QPainter.RenderHint.Antialiasing)
             bg = QLinearGradient(0, 0, 0, self.height())
-            bg.setColorAt(0.0, QColor("#0b1020"))
-            bg.setColorAt(1.0, QColor("#050812"))
+            bg.setColorAt(0.0, QColor("#171c24"))
+            bg.setColorAt(1.0, QColor("#0d1117"))
             p.fillRect(self.rect(), bg)
 
             stage = QRectF(
                 self.width() * 0.12, self.height() * 0.15,
                 self.width() * 0.76, self.height() * 0.7
             )
-            p.setPen(QPen(QColor("#1d2942"), 1))
-            p.setBrush(QColor("#09111f"))
+            p.setPen(QPen(QColor("#2a3446"), 1))
+            p.setBrush(QColor("#171d27"))
             p.drawRoundedRect(stage, 22, 22)
 
             inner = stage.adjusted(24, 24, -24, -24)
-            p.setPen(QPen(QColor("#24324d"), 1, Qt.PenStyle.DashLine))
-            p.setBrush(QColor("#0c1423"))
+            p.setPen(QPen(QColor("#344154"), 1, Qt.PenStyle.DashLine))
+            p.setBrush(QColor("#121821"))
             p.drawRoundedRect(inner, 16, 16)
 
-            p.setPen(QColor("#f7faff"))
+            p.setPen(QColor("#f7fafc"))
             p.setFont(QFont("Segoe UI", 20, QFont.Weight.Bold))
             p.drawText(
                 QRectF(inner.left(), inner.top() + inner.height() * 0.18, inner.width(), 34),
@@ -631,7 +653,7 @@ class GifCanvas(QWidget):
                 "Load an animated GIF"
             )
 
-            p.setPen(QColor("#8d9fbe"))
+            p.setPen(QColor("#a0acbc"))
             p.setFont(QFont("Segoe UI", 11))
             p.drawText(
                 QRectF(inner.left(), inner.top() + inner.height() * 0.34, inner.width(), 50),
@@ -640,10 +662,10 @@ class GifCanvas(QWidget):
             )
 
             chip = QRectF(inner.center().x() - 108, inner.bottom() - 54, 216, 28)
-            p.setPen(QPen(QColor("#2a3e63"), 1))
-            p.setBrush(QColor("#08101e"))
+            p.setPen(QPen(QColor("#39506f"), 1))
+            p.setBrush(QColor("#10161f"))
             p.drawRoundedRect(chip, 14, 14)
-            p.setPen(QColor("#89b4fa"))
+            p.setPen(QColor("#76b0ff"))
             p.drawText(chip, Qt.AlignmentFlag.AlignCenter, "Drag and drop supported")
             p.end()
             return
@@ -670,16 +692,16 @@ class GifCanvas(QWidget):
         p.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
 
         bg = QLinearGradient(0, 0, 0, ch)
-        bg.setColorAt(0.0, QColor("#0b1020"))
-        bg.setColorAt(1.0, QColor("#050812"))
+        bg.setColorAt(0.0, QColor("#171c24"))
+        bg.setColorAt(1.0, QColor("#0d1117"))
         p.fillRect(QRectF(0, 0, cw, ch), bg)
 
         stage_rect = QRectF(ox - 18, oy - 18, sw + 36, sh + 36)
         p.setPen(Qt.PenStyle.NoPen)
         p.setBrush(QColor(0, 0, 0, 70))
         p.drawRoundedRect(stage_rect.adjusted(0, 10, 0, 10), 24, 24)
-        p.setBrush(QColor("#09111f"))
-        p.setPen(QPen(QColor("#1d2942"), 1))
+        p.setBrush(QColor("#171d27"))
+        p.setPen(QPen(QColor("#2a3446"), 1))
         p.drawRoundedRect(stage_rect, 24, 24)
 
         # Checkerboard
@@ -688,7 +710,7 @@ class GifCanvas(QWidget):
         for cy in range(int(clip_r.top()), int(clip_r.bottom()), cs):
             for cx in range(int(clip_r.left()), int(clip_r.right()), cs):
                 g = ((cx - ox) // cs + (cy - oy) // cs) % 2
-                p.fillRect(cx, cy, cs, cs, QColor("#151b2b") if g else QColor("#0e1422"))
+                p.fillRect(cx, cy, cs, cs, QColor("#202733") if g else QColor("#171c24"))
 
         # Onion skin (previous frame)
         if self.onion_skin and self._prev_pixmap and self._current_frame > 0:
@@ -696,11 +718,11 @@ class GifCanvas(QWidget):
             p.drawPixmap(ox, oy, sw, sh, self._prev_pixmap)
             p.setOpacity(1.0)
             # Tint overlay
-            p.fillRect(QRectF(ox, oy, sw, sh), QColor(137, 180, 250, 30))
+            p.fillRect(QRectF(ox, oy, sw, sh), QColor(94, 162, 255, 28))
 
         # Current frame
         p.drawPixmap(ox, oy, sw, sh, self._base_pixmap)
-        p.setPen(QPen(QColor("#263554"), 1))
+        p.setPen(QPen(QColor("#313b4d"), 1))
         p.setBrush(Qt.BrushStyle.NoBrush)
         p.drawRoundedRect(self._gif_rect, 14, 14)
 
@@ -717,10 +739,10 @@ class GifCanvas(QWidget):
         # Zoom indicator
         if self._zoom != 1.0:
             badge = QRectF(12, ch - 34, 58, 24)
-            p.setPen(QPen(QColor("#24324d"), 1))
-            p.setBrush(QColor("#08101e"))
+            p.setPen(QPen(QColor("#2f394a"), 1))
+            p.setBrush(QColor("#10161f"))
             p.drawRoundedRect(badge, 12, 12)
-            p.setPen(QColor("#9db0d6"))
+            p.setPen(QColor("#c2d0e6"))
             p.setFont(QFont("Segoe UI", 9, QFont.Weight.DemiBold))
             p.drawText(badge, Qt.AlignmentFlag.AlignCenter, f"{self._zoom:.1f}x")
 
@@ -1033,12 +1055,12 @@ class LayerTimeline(QWidget):
 
         # Background
         bg = QLinearGradient(0, 0, 0, h)
-        bg.setColorAt(0.0, QColor("#0d1321"))
-        bg.setColorAt(1.0, QColor("#09111f"))
+        bg.setColorAt(0.0, QColor("#151b24"))
+        bg.setColorAt(1.0, QColor("#111720"))
         p.fillRect(0, 0, w, h, bg)
 
         # Frame ticks
-        p.setPen(QColor("#182235"))
+        p.setPen(QColor("#202834"))
         tick_interval = max(1, self.total_frames // 20)
         for i in range(0, self.total_frames, tick_interval):
             x = margin_l + int(i / denom * track_w)
@@ -1065,7 +1087,7 @@ class LayerTimeline(QWidget):
                 kx = margin_l + int(kf.frame / denom * track_w)
                 if x1 <= kx <= x2:
                     p.setBrush(QColor("#eef5ff") if layer.id == self.selected_id else QColor(layer.accent))
-                    p.setPen(QPen(QColor("#09111f"), 1))
+                    p.setPen(QPen(QColor("#111720"), 1))
                     diamond = QPainterPath()
                     dy = bar_y + bar_h / 2
                     diamond.moveTo(kx, dy - 4)
@@ -1077,7 +1099,7 @@ class LayerTimeline(QWidget):
 
             # Label
             if bar_h >= 10:
-                p.setPen(QColor("#09111f"))
+                p.setPen(QColor("#111720"))
                 p.setFont(QFont("Segoe UI", 7, QFont.Weight.Bold))
                 p.drawText(x1 + 4, bar_y + bar_h - 3, layer.text.split('\n')[0][:15])
 
@@ -1085,11 +1107,11 @@ class LayerTimeline(QWidget):
 
         # Playhead
         cx = margin_l + int(self.current_frame / denom * track_w)
-        p.setPen(QPen(QColor("#89b4fa"), 2))
+        p.setPen(QPen(QColor("#5ea2ff"), 2))
         p.drawLine(cx, 0, cx, h)
         # Playhead triangle
         p.setPen(Qt.PenStyle.NoPen)
-        p.setBrush(QColor("#89b4fa"))
+        p.setBrush(QColor("#5ea2ff"))
         tri = QPainterPath()
         tri.moveTo(cx - 5, 0)
         tri.lineTo(cx + 5, 0)
@@ -1124,8 +1146,8 @@ class LayerWidget(QFrame):
         self.layer = layer
         self.setFixedHeight(48)
         self.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        bc = layer.accent if is_selected else "#1d2942"
-        bg = "#09111f" if is_selected else "#0c1423"
+        bc = layer.accent if is_selected else "#2a3446"
+        bg = "#171d27" if is_selected else "#111720"
         self.setStyleSheet(
             f"QFrame {{ background-color: {bg}; border: 1px solid {bc}; "
             f"border-radius: 12px; padding: 4px; }}"
@@ -1151,7 +1173,7 @@ class LayerWidget(QFrame):
 
         lbl = QLabel(layer.text.split('\n')[0][:16] or "---")
         lbl.setStyleSheet(
-            f"color: #edf3ff; font-weight: {'700' if is_selected else '500'}; border: none;"
+            f"color: #eef2f7; font-weight: {'700' if is_selected else '500'}; border: none;"
         )
         lo.addWidget(lbl, 1)
 
@@ -1167,7 +1189,7 @@ class LayerWidget(QFrame):
         dl.setFixedSize(26, 26)
         dl.setToolTip("Delete layer")
         dl.setStyleSheet(
-            "background: #26131d; color: #ffb7cb; border: 1px solid #5c243b; "
+            "background: #311921; color: #ffcad8; border: 1px solid #6a3342; "
             "border-radius: 8px; font-weight: 700; padding: 0;"
         )
         dl.clicked.connect(lambda: self.deleted.emit(layer.id))
@@ -1244,10 +1266,7 @@ class GifTextApp(QMainWindow):
         header.setObjectName("workspaceHeader")
         hl = QVBoxLayout(header)
         hl.setContentsMargins(16, 14, 16, 14)
-        hl.setSpacing(12)
-
-        hero = QHBoxLayout()
-        hero.setSpacing(12)
+        hl.setSpacing(10)
 
         brand = QVBoxLayout()
         brand.setSpacing(2)
@@ -1258,43 +1277,53 @@ class GifTextApp(QMainWindow):
         subtitle.setObjectName("appSubtitle")
         subtitle.setWordWrap(True)
         brand.addWidget(subtitle)
-        hero.addLayout(brand, 1)
+        hl.addLayout(brand)
 
-        topbar = QHBoxLayout()
-        topbar.setSpacing(8)
+        primary_row = QHBoxLayout()
+        primary_row.setSpacing(8)
 
         self.btn_load = QPushButton("Load GIF")
         self.btn_load.setObjectName("accent")
         self.btn_load.setMinimumHeight(36)
         self.btn_load.clicked.connect(self._load_gif)
-        topbar.addWidget(self.btn_load)
+        primary_row.addWidget(self.btn_load)
+
+        self.btn_export = QPushButton("Export")
+        self.btn_export.setObjectName("ghost")
+        self.btn_export.setMinimumHeight(36)
+        self.btn_export.clicked.connect(self._export_gif)
+        self.btn_export.setEnabled(False)
+        primary_row.addWidget(self.btn_export)
 
         # Recent files dropdown
         self.btn_recent = QPushButton("Recent")
         self.btn_recent.setObjectName("ghost")
-        self.btn_recent.setMinimumHeight(36)
+        self.btn_recent.setMinimumHeight(32)
         self.btn_recent.clicked.connect(self._show_recent_menu)
-        topbar.addWidget(self.btn_recent)
+        primary_row.addWidget(self.btn_recent)
 
-        self.btn_export = QPushButton("Export GIF")
-        self.btn_export.setObjectName("accent")
-        self.btn_export.setMinimumHeight(36)
-        self.btn_export.clicked.connect(self._export_gif)
-        self.btn_export.setEnabled(False)
-        topbar.addWidget(self.btn_export)
+        primary_row.addStretch()
+
+        self.info_label = QLabel("No clip loaded")
+        self.info_label.setObjectName("workspaceMeta")
+        primary_row.addWidget(self.info_label)
+        hl.addLayout(primary_row)
 
         # Save/Load project
+        utility_row = QHBoxLayout()
+        utility_row.setSpacing(8)
         self.btn_save_proj = QPushButton("Save Project")
+        self.btn_save_proj.setObjectName("ghost")
         self.btn_save_proj.setMinimumHeight(36)
         self.btn_save_proj.clicked.connect(self._save_project)
         self.btn_save_proj.setEnabled(False)
-        topbar.addWidget(self.btn_save_proj)
+        utility_row.addWidget(self.btn_save_proj)
 
-        self.btn_load_proj = QPushButton("Load Project")
+        self.btn_load_proj = QPushButton("Open Project")
         self.btn_load_proj.setObjectName("ghost")
         self.btn_load_proj.setMinimumHeight(36)
         self.btn_load_proj.clicked.connect(self._load_project)
-        topbar.addWidget(self.btn_load_proj)
+        utility_row.addWidget(self.btn_load_proj)
 
         # Undo/Redo
         self.btn_undo = QPushButton("Undo")
@@ -1302,16 +1331,21 @@ class GifTextApp(QMainWindow):
         self.btn_undo.setMinimumHeight(36)
         self.btn_undo.clicked.connect(self._undo)
         self.btn_undo.setEnabled(False)
-        topbar.addWidget(self.btn_undo)
+        utility_row.addWidget(self.btn_undo)
 
         self.btn_redo = QPushButton("Redo")
         self.btn_redo.setObjectName("ghost")
         self.btn_redo.setMinimumHeight(36)
         self.btn_redo.clicked.connect(self._redo)
         self.btn_redo.setEnabled(False)
-        topbar.addWidget(self.btn_redo)
-        hero.addLayout(topbar)
-        hl.addLayout(hero)
+        utility_row.addWidget(self.btn_redo)
+
+        utility_row.addStretch()
+
+        self.hint_label = QLabel("Drop a GIF to begin, then add a text layer and scrub frame by frame.")
+        self.hint_label.setObjectName("workspaceHint")
+        utility_row.addWidget(self.hint_label)
+        hl.addLayout(utility_row)
 
         # Canvas options row
         opts_wrap = QFrame()
@@ -1341,14 +1375,6 @@ class GifTextApp(QMainWindow):
         opts.addWidget(self.speed_combo)
 
         opts.addStretch()
-
-        self.info_label = QLabel("No clip loaded")
-        self.info_label.setObjectName("infoBadge")
-        opts.addWidget(self.info_label)
-
-        self.hint_label = QLabel("Start by dropping a GIF onto the stage.")
-        self.hint_label.setObjectName("hintPill")
-        opts.addWidget(self.hint_label)
         hl.addWidget(opts_wrap)
         ll.addWidget(header)
 
@@ -1437,17 +1463,37 @@ class GifTextApp(QMainWindow):
         panel_title = QLabel("Inspector")
         panel_title.setObjectName("panelTitle")
         phl.addWidget(panel_title)
-        panel_subtitle = QLabel("Edit the selected text layer, animation keyframes, and timing.")
+        panel_subtitle = QLabel("Follow the workflow from top to bottom to build, style, and animate each caption.")
         panel_subtitle.setObjectName("panelSubtitle")
         panel_subtitle.setWordWrap(True)
         phl.addWidget(panel_subtitle)
+
+        self.selection_card = QFrame()
+        self.selection_card.setObjectName("selectionCard")
+        scl = QVBoxLayout(self.selection_card)
+        scl.setContentsMargins(12, 12, 12, 12)
+        scl.setSpacing(4)
+        self.selection_eyebrow = QLabel("Current Selection")
+        self.selection_eyebrow.setObjectName("selectionEyebrow")
+        scl.addWidget(self.selection_eyebrow)
+        self.selection_name = QLabel("No layer selected")
+        self.selection_name.setObjectName("selectionTitle")
+        scl.addWidget(self.selection_name)
+        self.selection_meta = QLabel("Load a GIF, then add a text layer to start editing.")
+        self.selection_meta.setObjectName("selectionMeta")
+        self.selection_meta.setWordWrap(True)
+        scl.addWidget(self.selection_meta)
+        self.selection_state = QLabel("Nothing to edit yet")
+        self.selection_state.setObjectName("selectionState")
+        scl.addWidget(self.selection_state)
+        phl.addWidget(self.selection_card)
         rl.addWidget(panel_header)
 
         # Layers
-        lg = QGroupBox("Text Layers")
+        lg = QGroupBox("1. Layers")
         ll2 = QVBoxLayout(lg)
         ll2.setSpacing(8)
-        layers_note = QLabel("Build one label per subject, then duplicate and retime as needed.")
+        layers_note = QLabel("Start with one label per person or object, then duplicate for variations.")
         layers_note.setObjectName("sectionNote")
         layers_note.setWordWrap(True)
         ll2.addWidget(layers_note)
@@ -1463,10 +1509,10 @@ class GifTextApp(QMainWindow):
         rl.addWidget(lg)
 
         # Presets
-        pg = QGroupBox("Quick Presets")
+        pg = QGroupBox("2. Looks")
         pgl = QVBoxLayout(pg)
         pgl.setSpacing(8)
-        presets_note = QLabel("Apply a look, then fine-tune size, outline, and timing below.")
+        presets_note = QLabel("Pick a visual direction first, then refine the details below.")
         presets_note.setObjectName("sectionNote")
         presets_note.setWordWrap(True)
         pgl.addWidget(presets_note)
@@ -1482,13 +1528,13 @@ class GifTextApp(QMainWindow):
         rl.addWidget(pg)
 
         # Text Properties
-        tg = QGroupBox("Text")
+        tg = QGroupBox("3. Content")
         tgl = QGridLayout(tg)
         tgl.setVerticalSpacing(4)
         tgl.setHorizontalSpacing(6)
         r = 0
 
-        text_note = QLabel("Write the caption and shape the voice of this layer.")
+        text_note = QLabel("Write the caption, choose the typeface, and decide how bold it should feel.")
         text_note.setObjectName("sectionNote")
         text_note.setWordWrap(True)
         tgl.addWidget(text_note, r, 0, 1, 3)
@@ -1518,14 +1564,14 @@ class GifTextApp(QMainWindow):
         self.chk_italic = QCheckBox("Italic")
         self.chk_italic.toggled.connect(self._on_style_changed)
         style_row.addWidget(self.chk_italic)
-        self.chk_upper = QCheckBox("CAPS")
+        self.chk_upper = QCheckBox("All Caps")
         self.chk_upper.setChecked(True)
         self.chk_upper.toggled.connect(self._on_style_changed)
         style_row.addWidget(self.chk_upper)
         self.chk_shadow = QCheckBox("Shadow")
         self.chk_shadow.toggled.connect(self._on_style_changed)
         style_row.addWidget(self.chk_shadow)
-        self.chk_bgbox = QCheckBox("BG Box")
+        self.chk_bgbox = QCheckBox("Background")
         self.chk_bgbox.toggled.connect(self._on_style_changed)
         style_row.addWidget(self.chk_bgbox)
         tgl.addLayout(style_row, r, 0, 1, 3)
@@ -1539,19 +1585,19 @@ class GifTextApp(QMainWindow):
         rl.addWidget(tg)
 
         # Animation
-        ag = QGroupBox("Animation")
+        ag = QGroupBox("4. Motion")
         agl = QGridLayout(ag)
         agl.setVerticalSpacing(4)
         agl.setHorizontalSpacing(6)
         ar = 0
 
-        anim_note = QLabel("Animate style changes per frame when motion or emphasis needs to shift.")
+        anim_note = QLabel("Use keyframes when the text needs to change size, opacity, rotation, or outline over time.")
         anim_note.setObjectName("sectionNote")
         anim_note.setWordWrap(True)
         agl.addWidget(anim_note, ar, 0, 1, 3)
         ar += 1
 
-        agl.addWidget(QLabel("Size:"), ar, 0)
+        agl.addWidget(QLabel("Font Size:"), ar, 0)
         self.spin_size = QSpinBox()
         self.spin_size.setRange(8, 200)
         self.spin_size.setValue(48)
@@ -1585,12 +1631,12 @@ class GifTextApp(QMainWindow):
         ar += 1
 
         color_row = QHBoxLayout()
-        self.btn_color = QPushButton("Text Color")
+        self.btn_color = QPushButton("Fill")
         self.btn_color.setFixedHeight(28)
         self.btn_color.clicked.connect(lambda: self._pick_color("text"))
         self.btn_color.setStyleSheet("background: #ffffff; color: #000; border-radius: 4px; font-weight: 600;")
         color_row.addWidget(self.btn_color)
-        self.btn_outline_color = QPushButton("Outline")
+        self.btn_outline_color = QPushButton("Stroke")
         self.btn_outline_color.setFixedHeight(28)
         self.btn_outline_color.clicked.connect(lambda: self._pick_color("outline"))
         self.btn_outline_color.setStyleSheet("background: #000000; color: #fff; border-radius: 4px; font-weight: 600;")
@@ -1598,23 +1644,23 @@ class GifTextApp(QMainWindow):
         agl.addLayout(color_row, ar, 0, 1, 3)
         ar += 1
 
-        self.pos_label = QLabel("Drag text on canvas to position")
+        self.pos_label = QLabel("Drag the label on the canvas to position it")
         self.pos_label.setStyleSheet("color: #585b70; font-size: 11px;")
         agl.addWidget(self.pos_label, ar, 0, 1, 3)
         ar += 1
 
         kf_row = QHBoxLayout()
-        self.btn_set_kf = QPushButton("Set Keyframe")
+        self.btn_set_kf = QPushButton("Add Keyframe")
         self.btn_set_kf.setObjectName("keyframeSet")
         self.btn_set_kf.setFixedHeight(30)
         self.btn_set_kf.clicked.connect(self._set_keyframe)
         kf_row.addWidget(self.btn_set_kf)
-        self.btn_del_kf = QPushButton("Delete KF")
+        self.btn_del_kf = QPushButton("Remove Keyframe")
         self.btn_del_kf.setObjectName("keyframeDel")
         self.btn_del_kf.setFixedHeight(30)
         self.btn_del_kf.clicked.connect(self._delete_keyframe)
         kf_row.addWidget(self.btn_del_kf)
-        self.btn_copy_kf = QPushButton("Copy KF...")
+        self.btn_copy_kf = QPushButton("Repeat 10 Frames")
         self.btn_copy_kf.setFixedHeight(30)
         self.btn_copy_kf.clicked.connect(self._copy_keyframe_range)
         kf_row.addWidget(self.btn_copy_kf)
@@ -1628,12 +1674,12 @@ class GifTextApp(QMainWindow):
         rl.addWidget(ag)
 
         # Timing
-        tmg = QGroupBox("Layer Timing")
+        tmg = QGroupBox("5. Timing")
         tmgl = QGridLayout(tmg)
         tmgl.setVerticalSpacing(4)
         tr = 0
 
-        timing_note = QLabel("Control when this layer appears, disappears, and fades.")
+        timing_note = QLabel("Trim when the layer shows up and add fades so captions enter and leave cleanly.")
         timing_note.setObjectName("sectionNote")
         timing_note.setWordWrap(True)
         tmgl.addWidget(timing_note, tr, 0, 1, 2)
@@ -1679,6 +1725,7 @@ class GifTextApp(QMainWindow):
         splitter.setSizes([940, 360])
 
         self._set_layer_controls_enabled(False)
+        self._refresh_chrome_state()
         self.statusBar().showMessage(f"GifText v{VERSION} - Load a GIF to get started")
 
     # ================================================================
@@ -1695,6 +1742,8 @@ class GifTextApp(QMainWindow):
         self.layers = []
         self.selected_layer = None
         self.undo_mgr.clear()
+        if hasattr(self, "info_label"):
+            self._refresh_chrome_state()
 
     def _schedule_snapshot(self, delay_ms=280):
         self.snapshot_timer.start(delay_ms)
@@ -1720,6 +1769,26 @@ class GifTextApp(QMainWindow):
         else:
             ext = ".gif"
         return path + ext, ext
+
+    def _set_button_role(self, button, role):
+        if button.objectName() == role:
+            return
+        button.setObjectName(role)
+        button.style().unpolish(button)
+        button.style().polish(button)
+        button.update()
+
+    def _refresh_chrome_state(self):
+        has_gif = bool(self.gif_frames)
+        self._set_button_role(self.btn_load, "ghost" if has_gif else "accent")
+        self._set_button_role(self.btn_export, "accent" if has_gif else "ghost")
+        if not has_gif:
+            self.info_label.setText("No clip loaded")
+            self.hint_label.setText("Drop a GIF to begin, then add a text layer and scrub frame by frame.")
+        elif self.selected_layer:
+            self.hint_label.setText("Drag to move, mouse wheel to scrub, Ctrl+wheel to zoom.")
+        else:
+            self.hint_label.setText("Add your first text layer, then track it across the timeline.")
 
     def _set_layer_controls_enabled(self, enabled):
         for widget in [
@@ -1789,6 +1858,7 @@ class GifTextApp(QMainWindow):
             self._rebuild_layer_list()
             self.info_label.setText(f"{self.gif_width}x{self.gif_height} | {self.total_frames}f | {os.path.basename(path)}")
             self.hint_label.setText("Add a text layer, drag it on the stage, then step through frames.")
+            self._refresh_chrome_state()
 
             self._add_recent(path)
             self._snapshot()
@@ -1850,6 +1920,7 @@ class GifTextApp(QMainWindow):
         self.layer_timeline.selected_id = sel_id
         self.layer_timeline.total_frames = self.total_frames
         self.layer_timeline.update()
+        self._refresh_chrome_state()
         self._sync_props_from_layer()
         self._update_undo_btns()
 
@@ -1977,6 +2048,14 @@ class GifTextApp(QMainWindow):
     def _sync_props_from_layer(self):
         layer = self.selected_layer
         if not layer:
+            if self.gif_frames:
+                self.selection_name.setText("Choose or add a layer")
+                self.selection_meta.setText("Use the Layers section to create a caption, then edit its content and motion here.")
+                self.selection_state.setText(f"Frame {self.current_frame + 1} of {self.total_frames}")
+            else:
+                self.selection_name.setText("No layer selected")
+                self.selection_meta.setText("Load a GIF, then add a text layer to start editing.")
+                self.selection_state.setText("Nothing to edit yet")
             self._set_layer_controls_enabled(False)
             self._block(True)
             self.txt_input.setPlainText("")
@@ -2038,6 +2117,15 @@ class GifTextApp(QMainWindow):
         kf_frames = sorted(k.frame + 1 for k in layer.keyframes)
         marker = "[KEYFRAME]" if existing else "[interpolated]"
         self.kf_info.setText(f"{marker}  KFs: {', '.join(map(str, kf_frames))}")
+        self.selection_name.setText(layer.text.split('\n')[0][:28] or f"Layer {layer.id}")
+        self.selection_meta.setText(
+            f"Frame {self.current_frame + 1} of {self.total_frames} | "
+            f"{layer.font_family} | {layer.alignment.title()} aligned"
+        )
+        self.selection_state.setText(
+            f"{'Keyframe locked' if existing else 'Interpolated preview'} | "
+            f"{len(layer.keyframes)} keyframe{'s' if len(layer.keyframes) != 1 else ''}"
+        )
 
         self.spin_frame_in.setValue(layer.frame_in)
         self.spin_frame_out.setValue(layer.frame_out)

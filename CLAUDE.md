@@ -1,4 +1,4 @@
-# GifText v1.2.0
+# GifText v1.2.1
 
 ## What
 Full-featured animated GIF text editor for meme creation. Add multiple text labels that track moving subjects with keyframe animation, onion skinning, undo/redo, project save/load, presets, and multi-format export.
@@ -14,6 +14,7 @@ python GifText.py
 ```
 
 ## Version History
+- **v1.2.1** - UI color refinement (GitHub Dark palette #0d1117), toolbar reorganized into primary/utility rows, selection card panel, workspaceMeta/workspaceHint labels, reduced border-radius (14px)
 - **v1.2.0** - Deep dark UI overhaul (AMOLED-level #060913 base), layer visibility toggles, helper refactors (_reset_document_state, _schedule_snapshot, _ensure_keyframe, _resolve_export_target, _set_layer_controls_enabled), improved project file handling (relative paths, UTF-8), export improvements (PNG sequence status, filter-based extension), UndoManager.clear(), OpenCV dependency added
 - **v1.1.0** - Drag-resize handle, recent files menu, undo-on-drag-end, resize cursor feedback, README
 - **v1.0.0** - Major feature release (16 features from competitive research)
