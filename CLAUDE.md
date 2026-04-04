@@ -1,7 +1,7 @@
-# GifText v0.2.0
+# GifText v1.0.0
 
 ## What
-Animated GIF text editor for meme creation. Add multiple text labels that track moving subjects across frames with keyframe animation.
+Full-featured animated GIF text editor for meme creation. Add multiple text labels that track moving subjects with keyframe animation, onion skinning, undo/redo, project save/load, presets, and multi-format export.
 
 ## Stack
 - Python, PyQt6 (GUI), Pillow (GIF I/O + export rendering)
@@ -13,32 +13,46 @@ Animated GIF text editor for meme creation. Add multiple text labels that track 
 python GifText.py
 ```
 
+## Features Added in v1.0.0
+- Undo/Redo (Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y) with snapshot history
+- Onion skinning (ghost previous frame)
+- Multi-line text input (QPlainTextEdit)
+- Layer timing: start/end frames + fade in/out
+- Layer timeline bars showing colored ranges + keyframe diamonds + playhead
+- Meme presets (Classic, Modern, Subtitle, Bold Impact, Neon)
+- Background box option (subtitle-style semi-transparent BG)
+- Copy keyframe to range (10 frames)
+- Duplicate layer (right-click context menu)
+- Playback speed control (0.25x-4x)
+- Zoom/pan canvas (Ctrl+wheel zoom, middle-click pan)
+- Drag & drop GIF onto canvas
+- Project save/load (.giftext JSON)
+- Recent files tracking
+- WebP + PNG sequence export
+- Ctrl+S save project shortcut
+
 ## Architecture
-- **TextLayer** - text element with keyframe list, color-coded accent for identification
-- **TextKeyframe** - per-frame properties (position, size, opacity, color, outline, rotation)
-- **GifCanvas** - QWidget with QPainter rendering, click-to-select, drag-to-move, mousewheel frame stepping
-- **KeyframeBar** - clickable timeline with keyframe diamonds
-- Smooth ease-in-out (smoothstep) interpolation between keyframes
-- Export renders text via Pillow ImageDraw with stroke_width support
+- **TextLayer** - text element with keyframes, timing (frame_in/out, fade_in/out), serializable
+- **TextKeyframe** - per-frame properties, serializable to/from dict
+- **UndoManager** - JSON snapshot-based undo/redo stack (50 levels)
+- **GifCanvas** - QWidget: onion skin, zoom/pan, drag/drop, click-to-select, drag-to-move
+- **LayerTimeline** - visual timeline with colored layer bars, keyframe diamonds, playhead
+- **LayerWidget** - layer list item with context menu (duplicate)
+- Export: GIF (RGB), WebP (RGBA, quality 85), PNG sequence
 
 ## Key Design Decisions
-- Positions stored as 0..1 relative coords (resolution independent)
-- On-canvas click-to-select: hit tests each visible layer, selects nearest
-- Dragging auto-creates keyframe at current frame
-- Each layer gets a unique accent color + tag label visible on canvas
-- Selected layer shows dashed bounding box with corner handles
-- Mousewheel on canvas steps frames (core workflow for tracking subjects)
-- Pillow export uses stroke_width for outlines with manual offset fallback
-
-## Workflow (sinking boat meme example)
-1. Load GIF
-2. Add 3 text layers, type each boy's name
-3. Frame 1: drag each name above each boy
-4. Mousewheel to advance ~10 frames, drag names to follow movement
-5. Repeat until end - interpolation fills gaps smoothly
-6. Export
+- Onion skin draws previous frame at 30% opacity with blue tint
+- Layer timing: frame_out=-1 means "last frame"
+- Fade in/out multiplies with keyframe opacity
+- Presets set both layer properties AND current keyframe properties
+- Copy KF copies current keyframe props to next 10 frames
+- Project file (.giftext) stores absolute GIF path with fallback to relative
+- Zoom via Ctrl+wheel, pan via middle-click drag, reset via button
+- Undo snapshots on: add/delete layer, set/delete keyframe, color change, preset apply
 
 ## Gotchas
-- GIF format has no alpha - export converts RGBA->RGB
+- GIF format has no alpha - GIF export converts RGBA->RGB
+- WebP export preserves alpha
 - Font path matching is Windows-specific (C:/Windows/Fonts/)
-- Hit testing uses approximate character-width estimation, not pixel-perfect
+- Pillow rounded_rectangle used for bg_box in export (requires Pillow 8.2+)
+- QPlainTextEdit textChanged has no args (unlike QLineEdit)

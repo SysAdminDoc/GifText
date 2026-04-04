@@ -1,16 +1,17 @@
 """
-GifText v0.2.0 - Animated GIF Text Editor
-Add smooth animated text to GIFs for meme creation.
-Click-to-select text on canvas, drag to reposition, mousewheel to step frames.
+GifText v1.0.0 - Animated GIF Text Editor
+Full-featured meme text animator with keyframe animation, onion skinning,
+undo/redo, project save/load, drag-resize, text presets, and more.
 """
 
 import sys
 import os
 import math
 import copy
+import json
+import time
 
 def _bootstrap():
-    """Auto-install dependencies before imports."""
     import subprocess
     required = {"PyQt6": "PyQt6", "PIL": "Pillow"}
     for mod, pkg in required.items():
@@ -33,169 +34,87 @@ _bootstrap()
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QPushButton, QSlider, QSpinBox, QDoubleSpinBox, QComboBox,
-    QColorDialog, QFileDialog, QFrame, QSplitter, QCheckBox, QLineEdit,
-    QFontComboBox, QGroupBox, QGridLayout, QSizePolicy, QScrollArea
+    QColorDialog, QFileDialog, QFrame, QSplitter, QCheckBox,
+    QFontComboBox, QGroupBox, QGridLayout, QSizePolicy, QScrollArea,
+    QPlainTextEdit, QMenu
 )
-from PyQt6.QtCore import Qt, QTimer, QPointF, QRectF, pyqtSignal, QSize
+from PyQt6.QtCore import Qt, QTimer, QPointF, QRectF, pyqtSignal, QSize, QMimeData
 from PyQt6.QtGui import (
     QPixmap, QImage, QColor, QPainter, QFont, QPen, QBrush,
-    QFontMetrics, QPainterPath, QCursor, QWheelEvent
+    QFontMetrics, QPainterPath, QCursor, QWheelEvent, QAction
 )
 from PIL import Image, ImageDraw, ImageFont
 import io
 
-VERSION = "0.2.0"
+VERSION = "1.0.0"
 
-# Layer accent colors for identification
 LAYER_COLORS = [
     "#89b4fa", "#a6e3a1", "#f9e2af", "#f38ba8", "#cba6f7",
     "#fab387", "#94e2d5", "#f5c2e7", "#74c7ec", "#b4befe",
 ]
 
+MEME_PRESETS = {
+    "Classic Meme": {"font": "Impact", "bold": True, "upper": True, "color": "#ffffff",
+                     "outline_color": "#000000", "outline_width": 4, "shadow": False, "size": 52, "bg_box": False},
+    "Modern Clean": {"font": "Montserrat", "bold": True, "upper": False, "color": "#ffffff",
+                     "outline_color": "#000000", "outline_width": 0, "shadow": True, "size": 36, "bg_box": False},
+    "Subtitle": {"font": "Arial", "bold": True, "upper": False, "color": "#ffffff",
+                 "outline_color": "#000000", "outline_width": 0, "shadow": False, "size": 28, "bg_box": True},
+    "Bold Impact": {"font": "Impact", "bold": True, "upper": True, "color": "#f9e2af",
+                    "outline_color": "#1e1e2e", "outline_width": 5, "shadow": True, "size": 60, "bg_box": False},
+    "Neon": {"font": "Arial", "bold": True, "upper": False, "color": "#89b4fa",
+             "outline_color": "#cba6f7", "outline_width": 3, "shadow": True, "size": 40, "bg_box": False},
+}
+
 DARK_STYLE = """
 QMainWindow, QWidget {
-    background-color: #1e1e2e;
-    color: #cdd6f4;
-    font-family: "Segoe UI", sans-serif;
-    font-size: 13px;
-}
-QToolBar {
-    background-color: #181825;
-    border: none;
-    padding: 4px;
-    spacing: 6px;
+    background-color: #1e1e2e; color: #cdd6f4;
+    font-family: "Segoe UI", sans-serif; font-size: 13px;
 }
 QPushButton {
-    background-color: #313244;
-    color: #cdd6f4;
-    border: 1px solid #45475a;
-    border-radius: 6px;
-    padding: 6px 14px;
-    font-weight: 500;
+    background-color: #313244; color: #cdd6f4;
+    border: 1px solid #45475a; border-radius: 6px;
+    padding: 5px 12px; font-weight: 500;
 }
-QPushButton:hover {
-    background-color: #45475a;
-    border-color: #89b4fa;
-}
-QPushButton:pressed {
-    background-color: #585b70;
-}
-QPushButton:disabled {
-    background-color: #1e1e2e;
-    color: #585b70;
-    border-color: #313244;
-}
-QPushButton#accent {
-    background-color: #89b4fa;
-    color: #1e1e2e;
-    font-weight: 600;
-}
-QPushButton#accent:hover {
-    background-color: #74c7ec;
-}
-QPushButton#accent:disabled {
-    background-color: #45475a;
-    color: #585b70;
-}
-QPushButton#danger {
-    background-color: #f38ba8;
-    color: #1e1e2e;
-}
-QPushButton#danger:hover {
-    background-color: #eba0ac;
-}
-QPushButton#keyframeSet {
-    background-color: #a6e3a1;
-    color: #1e1e2e;
-    font-weight: 600;
-}
-QPushButton#keyframeSet:hover {
-    background-color: #94e2d5;
-}
-QPushButton#keyframeDel {
-    background-color: #f38ba8;
-    color: #1e1e2e;
-}
-QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox, QFontComboBox {
-    background-color: #313244;
-    color: #cdd6f4;
-    border: 1px solid #45475a;
-    border-radius: 4px;
-    padding: 4px 8px;
+QPushButton:hover { background-color: #45475a; border-color: #89b4fa; }
+QPushButton:pressed { background-color: #585b70; }
+QPushButton:disabled { background-color: #1e1e2e; color: #585b70; border-color: #313244; }
+QPushButton#accent { background-color: #89b4fa; color: #1e1e2e; font-weight: 600; }
+QPushButton#accent:hover { background-color: #74c7ec; }
+QPushButton#accent:disabled { background-color: #45475a; color: #585b70; }
+QPushButton#danger { background-color: #f38ba8; color: #1e1e2e; }
+QPushButton#danger:hover { background-color: #eba0ac; }
+QPushButton#keyframeSet { background-color: #a6e3a1; color: #1e1e2e; font-weight: 600; }
+QPushButton#keyframeSet:hover { background-color: #94e2d5; }
+QPushButton#keyframeDel { background-color: #f38ba8; color: #1e1e2e; }
+QPushButton#preset { background-color: #45475a; color: #cdd6f4; border-radius: 4px; padding: 3px 8px; font-size: 11px; }
+QPushButton#preset:hover { background-color: #585b70; border-color: #89b4fa; }
+QPlainTextEdit, QSpinBox, QDoubleSpinBox, QComboBox, QFontComboBox {
+    background-color: #313244; color: #cdd6f4;
+    border: 1px solid #45475a; border-radius: 4px; padding: 4px 8px;
     selection-background-color: #585b70;
 }
-QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus {
-    border-color: #89b4fa;
-}
-QSlider::groove:horizontal {
-    height: 6px;
-    background: #313244;
-    border-radius: 3px;
-}
-QSlider::handle:horizontal {
-    background: #89b4fa;
-    width: 16px;
-    height: 16px;
-    margin: -5px 0;
-    border-radius: 8px;
-}
-QSlider::sub-page:horizontal {
-    background: #585b70;
-    border-radius: 3px;
-}
+QPlainTextEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus { border-color: #89b4fa; }
+QPlainTextEdit { font-size: 14px; font-weight: 600; }
+QSlider::groove:horizontal { height: 6px; background: #313244; border-radius: 3px; }
+QSlider::handle:horizontal { background: #89b4fa; width: 16px; height: 16px; margin: -5px 0; border-radius: 8px; }
+QSlider::sub-page:horizontal { background: #585b70; border-radius: 3px; }
 QGroupBox {
-    border: 1px solid #45475a;
-    border-radius: 6px;
-    margin-top: 12px;
-    padding-top: 14px;
-    font-weight: 600;
-    color: #89b4fa;
+    border: 1px solid #45475a; border-radius: 6px;
+    margin-top: 12px; padding-top: 14px; font-weight: 600; color: #89b4fa;
 }
-QGroupBox::title {
-    subcontrol-origin: margin;
-    left: 12px;
-    padding: 0 6px;
-}
-QScrollArea {
-    border: none;
-    background: transparent;
-}
-QLabel#frameLabel {
-    font-size: 15px;
-    font-weight: 700;
-    color: #f9e2af;
-    min-width: 110px;
-}
-QFrame#layerItem {
-    background-color: #313244;
-    border: 1px solid #45475a;
-    border-radius: 6px;
-    padding: 4px;
-}
-QFrame#timeline {
-    background-color: #181825;
-    border-top: 1px solid #45475a;
-}
-QStatusBar {
-    background-color: #181825;
-    color: #a6adc8;
-    font-size: 12px;
-}
+QGroupBox::title { subcontrol-origin: margin; left: 12px; padding: 0 6px; }
+QScrollArea { border: none; background: transparent; }
+QLabel#frameLabel { font-size: 15px; font-weight: 700; color: #f9e2af; min-width: 110px; }
+QFrame#timeline { background-color: #181825; border-top: 1px solid #45475a; }
+QStatusBar { background-color: #181825; color: #a6adc8; font-size: 12px; }
 QCheckBox { spacing: 6px; }
-QCheckBox::indicator {
-    width: 16px; height: 16px;
-    border-radius: 3px;
-    border: 1px solid #45475a;
-    background: #313244;
-}
-QCheckBox::indicator:checked {
-    background: #89b4fa;
-    border-color: #89b4fa;
-}
-QSplitter::handle {
-    background: #313244;
-    width: 2px;
-}
+QCheckBox::indicator { width: 16px; height: 16px; border-radius: 3px; border: 1px solid #45475a; background: #313244; }
+QCheckBox::indicator:checked { background: #89b4fa; border-color: #89b4fa; }
+QSplitter::handle { background: #313244; width: 2px; }
+QMenu { background-color: #313244; color: #cdd6f4; border: 1px solid #45475a; border-radius: 4px; padding: 4px; }
+QMenu::item { padding: 4px 20px; border-radius: 3px; }
+QMenu::item:selected { background-color: #45475a; }
 """
 
 
@@ -204,7 +123,6 @@ QSplitter::handle {
 # ============================================================================
 
 class TextKeyframe:
-    """Properties of a text layer at a specific frame."""
     __slots__ = ('frame', 'x', 'y', 'font_size', 'opacity',
                  'color', 'outline_color', 'outline_width', 'rotation')
 
@@ -227,9 +145,15 @@ class TextKeyframe:
             self.color, self.outline_color, self.outline_width, self.rotation
         )
 
+    def to_dict(self):
+        return {s: getattr(self, s) for s in self.__slots__}
+
+    @staticmethod
+    def from_dict(d):
+        return TextKeyframe(**{k: d[k] for k in TextKeyframe.__slots__ if k in d})
+
 
 class TextLayer:
-    """A text element with keyframed animation."""
     _counter = 0
 
     def __init__(self, text="TEXT"):
@@ -244,7 +168,27 @@ class TextLayer:
         self.visible = True
         self.shadow = False
         self.uppercase = True
+        self.bg_box = False
         self.accent = LAYER_COLORS[(self.id - 1) % len(LAYER_COLORS)]
+        self.frame_in = 0
+        self.frame_out = -1  # -1 = last frame
+        self.fade_in = 0     # frames to fade in
+        self.fade_out = 0    # frames to fade out
+
+    def is_visible_at(self, frame: int, total_frames: int) -> bool:
+        if not self.visible:
+            return False
+        out = self.frame_out if self.frame_out >= 0 else total_frames - 1
+        return self.frame_in <= frame <= out
+
+    def get_fade_opacity(self, frame: int, total_frames: int) -> float:
+        out = self.frame_out if self.frame_out >= 0 else total_frames - 1
+        fade = 1.0
+        if self.fade_in > 0 and frame < self.frame_in + self.fade_in:
+            fade = min(fade, (frame - self.frame_in) / self.fade_in)
+        if self.fade_out > 0 and frame > out - self.fade_out:
+            fade = min(fade, (out - frame) / self.fade_out)
+        return max(0.0, min(1.0, fade))
 
     def get_interpolated(self, frame: int) -> TextKeyframe:
         if not self.keyframes:
@@ -255,15 +199,10 @@ class TextLayer:
             return kf
 
         sorted_kfs = sorted(self.keyframes, key=lambda k: k.frame)
-
         if frame <= sorted_kfs[0].frame:
-            kf = sorted_kfs[0].copy()
-            kf.frame = frame
-            return kf
+            kf = sorted_kfs[0].copy(); kf.frame = frame; return kf
         if frame >= sorted_kfs[-1].frame:
-            kf = sorted_kfs[-1].copy()
-            kf.frame = frame
-            return kf
+            kf = sorted_kfs[-1].copy(); kf.frame = frame; return kf
 
         for i in range(len(sorted_kfs) - 1):
             if sorted_kfs[i].frame <= frame <= sorted_kfs[i + 1].frame:
@@ -272,24 +211,18 @@ class TextLayer:
                 if span == 0:
                     return k1.copy()
                 t = (frame - k1.frame) / span
-                t = t * t * (3 - 2 * t)  # smoothstep
+                t = t * t * (3 - 2 * t)
                 return self._lerp(k1, k2, t, frame)
-
         return sorted_kfs[-1].copy()
 
     def _lerp(self, k1, k2, t, frame):
         def mix(a, b): return a + (b - a) * t
         def mix_color(c1, c2):
             a, b = QColor(c1), QColor(c2)
-            return QColor(
-                int(mix(a.red(), b.red())),
-                int(mix(a.green(), b.green())),
-                int(mix(a.blue(), b.blue()))
-            ).name()
-
+            return QColor(int(mix(a.red(), b.red())), int(mix(a.green(), b.green())),
+                          int(mix(a.blue(), b.blue()))).name()
         kf = TextKeyframe(frame=frame)
-        kf.x = mix(k1.x, k2.x)
-        kf.y = mix(k1.y, k2.y)
+        kf.x = mix(k1.x, k2.x); kf.y = mix(k1.y, k2.y)
         kf.font_size = int(mix(k1.font_size, k2.font_size))
         kf.opacity = mix(k1.opacity, k2.opacity)
         kf.outline_width = int(mix(k1.outline_width, k2.outline_width))
@@ -298,74 +231,154 @@ class TextLayer:
         kf.outline_color = mix_color(k1.outline_color, k2.outline_color)
         return kf
 
-    def get_keyframe_at(self, frame: int):
+    def get_keyframe_at(self, frame):
         for kf in self.keyframes:
             if kf.frame == frame:
                 return kf
         return None
 
-    def set_keyframe(self, kf: TextKeyframe):
-        for i, existing in enumerate(self.keyframes):
-            if existing.frame == kf.frame:
-                self.keyframes[i] = kf
-                return
+    def set_keyframe(self, kf):
+        for i, ex in enumerate(self.keyframes):
+            if ex.frame == kf.frame:
+                self.keyframes[i] = kf; return
         self.keyframes.append(kf)
 
-    def remove_keyframe(self, frame: int):
-        self.keyframes = [kf for kf in self.keyframes if kf.frame != frame]
+    def remove_keyframe(self, frame):
+        self.keyframes = [k for k in self.keyframes if k.frame != frame]
         if not self.keyframes:
             self.keyframes = [TextKeyframe()]
 
     def hit_test(self, rx, ry, frame, scale_factor=1.0):
-        """Check if relative coords (rx,ry) are near this text. Returns distance or None."""
         kf = self.get_interpolated(frame)
-        # Approximate text bounding box in relative coords
-        # font_size 48 at 400px wide ~= 0.3 width for short text
-        char_w = (kf.font_size * 0.6 * len(self.text)) * scale_factor
-        char_h = kf.font_size * 1.2 * scale_factor
-        half_w = char_w / 2
-        half_h = char_h / 2
-
-        # Distance from center
-        dx = abs(rx - kf.x)
-        dy = abs(ry - kf.y)
-
-        if dx < half_w + 0.02 and dy < half_h + 0.02:
+        char_w = (kf.font_size * 0.6 * max(len(l) for l in self.text.split('\n'))) * scale_factor
+        char_h = kf.font_size * 1.2 * len(self.text.split('\n')) * scale_factor
+        dx, dy = abs(rx - kf.x), abs(ry - kf.y)
+        if dx < char_w / 2 + 0.03 and dy < char_h / 2 + 0.03:
             return math.sqrt(dx * dx + dy * dy)
         return None
 
+    def to_dict(self):
+        return {
+            "text": self.text, "font_family": self.font_family,
+            "bold": self.bold, "italic": self.italic, "alignment": self.alignment,
+            "visible": self.visible, "shadow": self.shadow, "uppercase": self.uppercase,
+            "bg_box": self.bg_box, "frame_in": self.frame_in, "frame_out": self.frame_out,
+            "fade_in": self.fade_in, "fade_out": self.fade_out,
+            "keyframes": [kf.to_dict() for kf in self.keyframes],
+        }
+
+    @staticmethod
+    def from_dict(d):
+        layer = TextLayer.__new__(TextLayer)
+        TextLayer._counter += 1
+        layer.id = TextLayer._counter
+        layer.text = d.get("text", "TEXT")
+        layer.font_family = d.get("font_family", "Impact")
+        layer.bold = d.get("bold", True)
+        layer.italic = d.get("italic", False)
+        layer.alignment = d.get("alignment", "center")
+        layer.visible = d.get("visible", True)
+        layer.shadow = d.get("shadow", False)
+        layer.uppercase = d.get("uppercase", True)
+        layer.bg_box = d.get("bg_box", False)
+        layer.frame_in = d.get("frame_in", 0)
+        layer.frame_out = d.get("frame_out", -1)
+        layer.fade_in = d.get("fade_in", 0)
+        layer.fade_out = d.get("fade_out", 0)
+        layer.accent = LAYER_COLORS[(layer.id - 1) % len(LAYER_COLORS)]
+        layer.keyframes = [TextKeyframe.from_dict(k) for k in d.get("keyframes", [{"frame": 0}])]
+        return layer
+
 
 # ============================================================================
-#  Canvas - click to select, drag to move, mousewheel to step frames
+#  Undo System
+# ============================================================================
+
+class UndoManager:
+    def __init__(self, max_history=50):
+        self._history: list[str] = []
+        self._index = -1
+        self._max = max_history
+
+    def snapshot(self, layers: list[TextLayer]):
+        state = json.dumps([l.to_dict() for l in layers])
+        # Discard redo history
+        self._history = self._history[:self._index + 1]
+        self._history.append(state)
+        if len(self._history) > self._max:
+            self._history.pop(0)
+        self._index = len(self._history) - 1
+
+    def undo(self) -> list[TextLayer] | None:
+        if self._index <= 0:
+            return None
+        self._index -= 1
+        return self._restore()
+
+    def redo(self) -> list[TextLayer] | None:
+        if self._index >= len(self._history) - 1:
+            return None
+        self._index += 1
+        return self._restore()
+
+    def _restore(self) -> list[TextLayer]:
+        data = json.loads(self._history[self._index])
+        TextLayer._counter = 0
+        return [TextLayer.from_dict(d) for d in data]
+
+    @property
+    def can_undo(self): return self._index > 0
+    @property
+    def can_redo(self): return self._index < len(self._history) - 1
+
+
+# ============================================================================
+#  Canvas
 # ============================================================================
 
 class GifCanvas(QWidget):
     text_moved = pyqtSignal(float, float)
-    text_clicked = pyqtSignal(int)           # layer id
-    frame_step = pyqtSignal(int)             # +1 or -1
-    canvas_clicked = pyqtSignal(float, float)  # click on empty area
+    text_clicked = pyqtSignal(int)
+    frame_step = pyqtSignal(int)
+    canvas_clicked = pyqtSignal(float, float)
+    resize_delta = pyqtSignal(float)  # drag-resize: delta in relative units
+    zoom_changed = pyqtSignal(float)
 
     def __init__(self):
         super().__init__()
         self.setMinimumSize(320, 240)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.setMouseTracking(True)
-        self.setFocusPolicy(Qt.FocusPolicy.WheelFocus)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.setAcceptDrops(True)
 
         self._base_pixmap: QPixmap | None = None
+        self._prev_pixmap: QPixmap | None = None  # onion skin
         self._layers: list[TextLayer] = []
-        self._selected_id: int = -1
+        self._selected_id = -1
         self._current_frame = 0
+        self._total_frames = 1
         self._gif_rect = QRectF()
         self._dragging = False
+        self._resizing = False
         self._hovering_id = -1
         self._rendered = QPixmap()
+        self._zoom = 1.0
+        self._pan_x = 0.0
+        self._pan_y = 0.0
+        self._panning = False
+        self._pan_start = QPointF()
+        self._pan_offset_start = (0.0, 0.0)
+        self.onion_skin = False
+        self.onion_opacity = 0.3
 
-    def set_frame(self, pixmap: QPixmap, layers: list, frame: int, selected_id: int):
+    def set_frame(self, pixmap, prev_pixmap, layers, frame, selected_id, total_frames):
         self._base_pixmap = pixmap
+        self._prev_pixmap = prev_pixmap
         self._layers = layers
         self._current_frame = frame
         self._selected_id = selected_id
+        self._total_frames = total_frames
         self._render()
         self.update()
 
@@ -375,7 +388,8 @@ class GifCanvas(QWidget):
             p.fillRect(self.rect(), QColor("#11111b"))
             p.setPen(QColor("#585b70"))
             p.setFont(QFont("Segoe UI", 14))
-            p.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, "Load an animated GIF to begin")
+            p.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter,
+                       "Load a GIF or drop one here")
             p.end()
             return
         p = QPainter(self)
@@ -385,13 +399,13 @@ class GifCanvas(QWidget):
     def _render(self):
         if not self._base_pixmap:
             return
-
         cw, ch = self.width(), self.height()
         pw, ph = self._base_pixmap.width(), self._base_pixmap.height()
-        scale = min(cw / pw, ch / ph, 3.0)
+        base_scale = min(cw / pw, ch / ph, 3.0)
+        scale = base_scale * self._zoom
         sw, sh = int(pw * scale), int(ph * scale)
-        ox = (cw - sw) // 2
-        oy = (ch - sh) // 2
+        ox = int((cw - sw) / 2 + self._pan_x)
+        oy = int((ch - sh) / 2 + self._pan_y)
         self._gif_rect = QRectF(ox, oy, sw, sh)
 
         result = QPixmap(cw, ch)
@@ -402,28 +416,43 @@ class GifCanvas(QWidget):
 
         # Checkerboard
         cs = 10
-        for cy in range(oy, oy + sh, cs):
-            for cx in range(ox, ox + sw, cs):
+        clip_r = QRectF(max(0, ox), max(0, oy), min(sw, cw - max(0, ox)), min(sh, ch - max(0, oy)))
+        for cy in range(int(clip_r.top()), int(clip_r.bottom()), cs):
+            for cx in range(int(clip_r.left()), int(clip_r.right()), cs):
                 g = ((cx - ox) // cs + (cy - oy) // cs) % 2
-                p.fillRect(cx, cy, min(cs, ox + sw - cx), min(cs, oy + sh - cy),
-                           QColor("#2a2a3a") if g else QColor("#232336"))
+                p.fillRect(cx, cy, cs, cs, QColor("#2a2a3a") if g else QColor("#232336"))
 
+        # Onion skin (previous frame)
+        if self.onion_skin and self._prev_pixmap and self._current_frame > 0:
+            p.setOpacity(self.onion_opacity)
+            p.drawPixmap(ox, oy, sw, sh, self._prev_pixmap)
+            p.setOpacity(1.0)
+            # Tint overlay
+            p.fillRect(QRectF(ox, oy, sw, sh), QColor(137, 180, 250, 30))
+
+        # Current frame
         p.drawPixmap(ox, oy, sw, sh, self._base_pixmap)
 
-        # Draw each text layer
+        # Text layers
         for layer in self._layers:
-            if not layer.visible:
+            if not layer.is_visible_at(self._current_frame, self._total_frames):
                 continue
             kf = layer.get_interpolated(self._current_frame)
-            is_selected = (layer.id == self._selected_id)
-            is_hover = (layer.id == self._hovering_id)
-            self._draw_text_layer(p, layer, kf, ox, oy, sw, sh, scale, is_selected, is_hover)
+            sel = layer.id == self._selected_id
+            hov = layer.id == self._hovering_id
+            fade = layer.get_fade_opacity(self._current_frame, self._total_frames)
+            self._draw_text_layer(p, layer, kf, ox, oy, sw, sh, scale, sel, hov, fade)
+
+        # Zoom indicator
+        if self._zoom != 1.0:
+            p.setPen(QColor("#585b70"))
+            p.setFont(QFont("Segoe UI", 10))
+            p.drawText(8, ch - 8, f"{self._zoom:.1f}x")
 
         p.end()
         self._rendered = result
 
-    def _draw_text_layer(self, p: QPainter, layer: TextLayer, kf: TextKeyframe,
-                         ox, oy, sw, sh, scale, selected, hover):
+    def _draw_text_layer(self, p, layer, kf, ox, oy, sw, sh, scale, selected, hover, fade_mult):
         text = layer.text.upper() if layer.uppercase else layer.text
         if not text:
             return
@@ -431,7 +460,6 @@ class GifCanvas(QWidget):
         font = QFont(layer.font_family, max(4, int(kf.font_size * scale)))
         font.setBold(layer.bold)
         font.setItalic(layer.italic)
-
         tx = ox + kf.x * sw
         ty = oy + kf.y * sh
 
@@ -439,59 +467,65 @@ class GifCanvas(QWidget):
         p.translate(tx, ty)
         if kf.rotation != 0:
             p.rotate(kf.rotation)
-        p.setOpacity(kf.opacity)
+
+        effective_opacity = kf.opacity * fade_mult
+        p.setOpacity(effective_opacity)
 
         fm = QFontMetrics(font)
         lines = text.split('\n')
         total_h = fm.height() * len(lines)
         y_start = -total_h / 2
-
-        # Compute bounding rect for selection box
         max_w = max(fm.horizontalAdvance(l) for l in lines) if lines else 0
-        bbox = QRectF(-max_w / 2 - 6, y_start - 6, max_w + 12, total_h + 12)
+        bbox = QRectF(-max_w / 2 - 8, y_start - 8, max_w + 16, total_h + 16)
 
-        # Selection / hover indicator
+        # Background box (subtitle style)
+        if layer.bg_box:
+            p.setPen(Qt.PenStyle.NoPen)
+            p.setBrush(QColor(0, 0, 0, int(160 * effective_opacity)))
+            p.drawRoundedRect(bbox, 4, 4)
+
+        # Selection indicator
         if selected or hover:
             p.setOpacity(1.0)
             accent = QColor(layer.accent)
             if selected:
-                # Dashed selection box
                 pen = QPen(accent, 2, Qt.PenStyle.DashLine)
                 p.setPen(pen)
                 p.setBrush(Qt.BrushStyle.NoBrush)
                 p.drawRoundedRect(bbox, 4, 4)
-                # Corner handles
+                # Resize handle (bottom-right)
+                hr = QPointF(bbox.right(), bbox.bottom())
+                p.setPen(Qt.PenStyle.NoPen)
+                p.setBrush(accent)
+                p.drawEllipse(hr, 5, 5)
+                # Other corners
                 for cx, cy in [(bbox.left(), bbox.top()), (bbox.right(), bbox.top()),
-                                (bbox.left(), bbox.bottom()), (bbox.right(), bbox.bottom())]:
-                    p.setPen(Qt.PenStyle.NoPen)
-                    p.setBrush(accent)
-                    p.drawEllipse(QPointF(cx, cy), 4, 4)
+                                (bbox.left(), bbox.bottom())]:
+                    p.drawEllipse(QPointF(cx, cy), 3, 3)
             elif hover:
-                pen = QPen(accent, 1, Qt.PenStyle.DotLine)
-                p.setPen(pen)
+                p.setPen(QPen(accent, 1, Qt.PenStyle.DotLine))
                 p.setBrush(Qt.BrushStyle.NoBrush)
                 p.drawRoundedRect(bbox, 4, 4)
-            p.setOpacity(kf.opacity)
+            p.setOpacity(effective_opacity)
 
-        # Layer tag (small colored label)
-        p.setOpacity(min(1.0, kf.opacity + 0.3))
+        # Layer tag
+        p.setOpacity(min(1.0, effective_opacity + 0.3))
         tag_font = QFont("Segoe UI", max(7, int(9 * scale)))
         tag_font.setBold(True)
         p.setFont(tag_font)
-        tag_text = f" {layer.text[:12]} "
+        tag_text = f" {layer.text.split(chr(10))[0][:12]} "
         tag_fm = QFontMetrics(tag_font)
         tag_w = tag_fm.horizontalAdvance(tag_text) + 8
         tag_rect = QRectF(bbox.left(), bbox.top() - tag_fm.height() - 2, tag_w, tag_fm.height() + 2)
         p.setPen(Qt.PenStyle.NoPen)
-        accent_bg = QColor(layer.accent)
-        accent_bg.setAlpha(200)
-        p.setBrush(accent_bg)
+        abg = QColor(layer.accent); abg.setAlpha(200)
+        p.setBrush(abg)
         p.drawRoundedRect(tag_rect, 3, 3)
         p.setPen(QColor("#1e1e2e"))
         p.drawText(tag_rect, Qt.AlignmentFlag.AlignCenter, tag_text)
-        p.setOpacity(kf.opacity)
+        p.setOpacity(effective_opacity)
 
-        # Draw text with outline
+        # Text rendering
         p.setFont(font)
         for i, line in enumerate(lines):
             bw = fm.horizontalAdvance(line)
@@ -506,7 +540,6 @@ class GifCanvas(QWidget):
             path = QPainterPath()
             path.addText(lx, ly, font, line)
 
-            # Outline
             ow = int(kf.outline_width * scale)
             if ow > 0:
                 p.setPen(QPen(QColor(kf.outline_color), ow,
@@ -515,7 +548,6 @@ class GifCanvas(QWidget):
                 p.setBrush(Qt.BrushStyle.NoBrush)
                 p.drawPath(path)
 
-            # Shadow
             if layer.shadow:
                 soff = max(2, int(2 * scale))
                 sp = QPainterPath()
@@ -524,17 +556,14 @@ class GifCanvas(QWidget):
                 p.setBrush(QColor(0, 0, 0, 128))
                 p.drawPath(sp)
 
-            # Fill
             p.setPen(Qt.PenStyle.NoPen)
             p.setBrush(QColor(kf.color))
             p.drawPath(path)
 
         p.restore()
 
-    # ── Mouse handling ──
-
+    # Mouse handling
     def _rel_pos(self, mx, my):
-        """Convert widget coords to relative GIF coords."""
         if self._gif_rect.width() == 0:
             return None, None
         rx = (mx - self._gif_rect.x()) / self._gif_rect.width()
@@ -542,28 +571,30 @@ class GifCanvas(QWidget):
         return max(0, min(1, rx)), max(0, min(1, ry))
 
     def _find_layer_at(self, rx, ry):
-        """Find the closest visible layer under the cursor."""
         if rx is None:
             return None
-        best_layer = None
-        best_dist = float('inf')
-        scale_factor = 1.0 / max(1, self._gif_rect.width())
-        for layer in reversed(self._layers):  # top layers first
-            if not layer.visible:
+        best, best_d = None, float('inf')
+        sf = 1.0 / max(1, self._gif_rect.width())
+        for layer in reversed(self._layers):
+            if not layer.is_visible_at(self._current_frame, self._total_frames):
                 continue
-            d = layer.hit_test(rx, ry, self._current_frame, scale_factor)
-            if d is not None and d < best_dist:
-                best_dist = d
-                best_layer = layer
-        return best_layer
+            d = layer.hit_test(rx, ry, self._current_frame, sf)
+            if d is not None and d < best_d:
+                best_d = d; best = layer
+        return best
 
     def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.MiddleButton:
+            self._panning = True
+            self._pan_start = event.position()
+            self._pan_offset_start = (self._pan_x, self._pan_y)
+            self.setCursor(QCursor(Qt.CursorShape.ClosedHandCursor))
+            return
         if event.button() != Qt.MouseButton.LeftButton:
             return
         rx, ry = self._rel_pos(event.pos().x(), event.pos().y())
         if rx is None:
             return
-
         hit = self._find_layer_at(rx, ry)
         if hit:
             self.text_clicked.emit(hit.id)
@@ -573,11 +604,18 @@ class GifCanvas(QWidget):
             self.canvas_clicked.emit(rx, ry)
 
     def mouseMoveEvent(self, event):
+        if self._panning:
+            dx = event.position().x() - self._pan_start.x()
+            dy = event.position().y() - self._pan_start.y()
+            self._pan_x = self._pan_offset_start[0] + dx
+            self._pan_y = self._pan_offset_start[1] + dy
+            self._render()
+            self.update()
+            return
         rx, ry = self._rel_pos(event.pos().x(), event.pos().y())
         if self._dragging and rx is not None:
             self.text_moved.emit(rx, ry)
         elif not self._dragging:
-            # Hover detection
             hit = self._find_layer_at(rx, ry)
             new_hover = hit.id if hit else -1
             if new_hover != self._hovering_id:
@@ -587,15 +625,31 @@ class GifCanvas(QWidget):
                 self.update()
 
     def mouseReleaseEvent(self, event):
-        if event.button() == Qt.MouseButton.LeftButton:
+        if event.button() == Qt.MouseButton.MiddleButton:
+            self._panning = False
+            self.setCursor(QCursor(Qt.CursorShape.ArrowCursor))
+        elif event.button() == Qt.MouseButton.LeftButton:
             self._dragging = False
 
-    def wheelEvent(self, event: QWheelEvent):
+    def wheelEvent(self, event):
+        mods = event.modifiers()
         delta = event.angleDelta().y()
-        if delta > 0:
-            self.frame_step.emit(-1)
-        elif delta < 0:
-            self.frame_step.emit(1)
+        if mods & Qt.KeyboardModifier.ControlModifier:
+            # Zoom
+            factor = 1.15 if delta > 0 else 1 / 1.15
+            self._zoom = max(0.25, min(8.0, self._zoom * factor))
+            self._render()
+            self.update()
+        else:
+            # Frame step
+            self.frame_step.emit(-1 if delta > 0 else 1)
+
+    def reset_view(self):
+        self._zoom = 1.0
+        self._pan_x = 0.0
+        self._pan_y = 0.0
+        self._render()
+        self.update()
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
@@ -603,22 +657,38 @@ class GifCanvas(QWidget):
             self._render()
             self.update()
 
+    # Drag & drop GIF
+    def dragEnterEvent(self, event):
+        if event.mimeData().hasUrls():
+            for url in event.mimeData().urls():
+                if url.toLocalFile().lower().endswith('.gif'):
+                    event.acceptProposedAction()
+                    return
+
+    def dropEvent(self, event):
+        for url in event.mimeData().urls():
+            path = url.toLocalFile()
+            if path.lower().endswith('.gif'):
+                # Signal to parent
+                self.window()._load_gif_from_path(path)
+                break
+
 
 # ============================================================================
-#  Keyframe Bar
+#  Timeline with Layer Bars
 # ============================================================================
 
-class KeyframeBar(QWidget):
+class LayerTimeline(QWidget):
     frame_clicked = pyqtSignal(int)
 
     def __init__(self):
         super().__init__()
-        self.setFixedHeight(24)
+        self.setFixedHeight(80)
         self.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         self.total_frames = 1
-        self.keyframe_positions: list[int] = []
         self.current_frame = 0
-        self.accent = "#89b4fa"
+        self.layers: list[TextLayer] = []
+        self.selected_id = -1
 
     def paintEvent(self, event):
         if self.total_frames <= 1:
@@ -627,40 +697,82 @@ class KeyframeBar(QWidget):
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         w, h = self.width(), self.height()
         denom = max(1, self.total_frames - 1)
+        margin_l, margin_r = 6, 6
+        track_w = w - margin_l - margin_r
 
-        # Track
+        # Background
+        p.fillRect(0, 0, w, h, QColor("#181825"))
+
+        # Frame ticks
+        p.setPen(QColor("#313244"))
+        tick_interval = max(1, self.total_frames // 20)
+        for i in range(0, self.total_frames, tick_interval):
+            x = margin_l + int(i / denom * track_w)
+            p.drawLine(x, 0, x, h)
+
+        # Layer bars
+        bar_h = min(16, max(8, (h - 20) // max(1, len(self.layers))))
+        bar_y = 4
+        for layer in self.layers:
+            fi = layer.frame_in
+            fo = layer.frame_out if layer.frame_out >= 0 else self.total_frames - 1
+            x1 = margin_l + int(fi / denom * track_w)
+            x2 = margin_l + int(fo / denom * track_w)
+
+            # Bar background
+            color = QColor(layer.accent)
+            color.setAlpha(100 if layer.id != self.selected_id else 180)
+            p.setPen(Qt.PenStyle.NoPen)
+            p.setBrush(color)
+            p.drawRoundedRect(x1, bar_y, max(4, x2 - x1), bar_h, 3, 3)
+
+            # Keyframe diamonds
+            for kf in layer.keyframes:
+                kx = margin_l + int(kf.frame / denom * track_w)
+                if x1 <= kx <= x2:
+                    p.setBrush(QColor("#f9e2af") if layer.id == self.selected_id else QColor(layer.accent))
+                    p.setPen(QPen(QColor("#1e1e2e"), 1))
+                    diamond = QPainterPath()
+                    dy = bar_y + bar_h / 2
+                    diamond.moveTo(kx, dy - 4)
+                    diamond.lineTo(kx + 4, dy)
+                    diamond.lineTo(kx, dy + 4)
+                    diamond.lineTo(kx - 4, dy)
+                    diamond.closeSubpath()
+                    p.drawPath(diamond)
+
+            # Label
+            if bar_h >= 10:
+                p.setPen(QColor("#1e1e2e"))
+                p.setFont(QFont("Segoe UI", 7, QFont.Weight.Bold))
+                p.drawText(x1 + 4, bar_y + bar_h - 3, layer.text.split('\n')[0][:15])
+
+            bar_y += bar_h + 2
+
+        # Playhead
+        cx = margin_l + int(self.current_frame / denom * track_w)
+        p.setPen(QPen(QColor("#f38ba8"), 2))
+        p.drawLine(cx, 0, cx, h)
+        # Playhead triangle
         p.setPen(Qt.PenStyle.NoPen)
-        p.setBrush(QColor("#313244"))
-        p.drawRoundedRect(0, h // 2 - 2, w, 4, 2, 2)
+        p.setBrush(QColor("#f38ba8"))
+        tri = QPainterPath()
+        tri.moveTo(cx - 5, 0)
+        tri.lineTo(cx + 5, 0)
+        tri.lineTo(cx, 6)
+        tri.closeSubpath()
+        p.drawPath(tri)
 
-        # Keyframe diamonds
-        for kf_f in self.keyframe_positions:
-            x = int(kf_f / denom * (w - 12)) + 6
-            p.setBrush(QColor("#f9e2af"))
-            p.setPen(QPen(QColor("#1e1e2e"), 1))
-            path = QPainterPath()
-            path.moveTo(x, h // 2 - 7)
-            path.lineTo(x + 7, h // 2)
-            path.lineTo(x, h // 2 + 7)
-            path.lineTo(x - 7, h // 2)
-            path.closeSubpath()
-            p.drawPath(path)
-
-        # Current frame marker
-        cx = int(self.current_frame / denom * (w - 12)) + 6
-        p.setBrush(QColor(self.accent))
-        p.setPen(QPen(QColor("#1e1e2e"), 1))
-        p.drawEllipse(QPointF(cx, h / 2), 5, 5)
         p.end()
 
     def mousePressEvent(self, event):
         if self.total_frames <= 1:
             return
-        w = self.width()
+        margin_l = 6
+        track_w = self.width() - 12
         denom = max(1, self.total_frames - 1)
-        frame = int((event.pos().x() - 6) / max(1, w - 12) * denom + 0.5)
-        frame = max(0, min(self.total_frames - 1, frame))
-        self.frame_clicked.emit(frame)
+        frame = int((event.pos().x() - margin_l) / max(1, track_w) * denom + 0.5)
+        self.frame_clicked.emit(max(0, min(self.total_frames - 1, frame)))
 
 
 # ============================================================================
@@ -670,65 +782,60 @@ class KeyframeBar(QWidget):
 class LayerWidget(QFrame):
     selected = pyqtSignal(int)
     deleted = pyqtSignal(int)
+    duplicated = pyqtSignal(int)
     visibility_changed = pyqtSignal(int, bool)
 
-    def __init__(self, layer: TextLayer, is_selected: bool):
+    def __init__(self, layer, is_selected):
         super().__init__()
         self.layer = layer
-        self.setObjectName("layerItem")
-        self.setFixedHeight(42)
+        self.setFixedHeight(40)
         self.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-
-        border_color = layer.accent if is_selected else "#45475a"
+        bc = layer.accent if is_selected else "#45475a"
         bg = "#1e1e2e" if is_selected else "#313244"
         self.setStyleSheet(
-            f"QFrame#layerItem {{ background-color: {bg}; border: 2px solid {border_color}; "
+            f"QFrame {{ background-color: {bg}; border: 2px solid {bc}; "
             f"border-radius: 6px; padding: 2px; }}"
         )
+        lo = QHBoxLayout(self)
+        lo.setContentsMargins(6, 2, 6, 2)
+        lo.setSpacing(6)
 
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(6, 2, 6, 2)
-        layout.setSpacing(6)
-
-        # Color dot
         dot = QLabel()
-        dot.setFixedSize(12, 12)
-        dot.setStyleSheet(f"background-color: {layer.accent}; border-radius: 6px; border: none;")
-        layout.addWidget(dot)
+        dot.setFixedSize(10, 10)
+        dot.setStyleSheet(f"background-color: {layer.accent}; border-radius: 5px; border: none;")
+        lo.addWidget(dot)
 
-        # Visibility
-        self.vis_btn = QPushButton("V" if layer.visible else "-")
-        self.vis_btn.setFixedSize(26, 26)
-        self.vis_btn.setStyleSheet(
-            f"background-color: {'#45475a' if layer.visible else '#1e1e2e'}; "
-            f"border-radius: 4px; font-size: 11px; padding: 0; border: none; "
-            f"color: {'#cdd6f4' if layer.visible else '#585b70'};"
+        vis = QPushButton("V" if layer.visible else "-")
+        vis.setFixedSize(24, 24)
+        vis.setStyleSheet(
+            f"background: {'#45475a' if layer.visible else '#1e1e2e'}; border-radius: 4px; "
+            f"font-size: 10px; padding: 0; border: none; color: {'#cdd6f4' if layer.visible else '#585b70'};"
         )
-        self.vis_btn.clicked.connect(self._toggle_vis)
-        layout.addWidget(self.vis_btn)
+        vis.clicked.connect(lambda: (
+            setattr(layer, 'visible', not layer.visible),
+            self.visibility_changed.emit(layer.id, layer.visible)
+        ))
+        lo.addWidget(vis)
 
-        # Label
-        self.label = QLabel(layer.text[:18] or "---")
-        self.label.setStyleSheet(f"color: #cdd6f4; font-weight: {'600' if is_selected else '400'}; border: none;")
-        layout.addWidget(self.label, 1)
+        lbl = QLabel(layer.text.split('\n')[0][:16] or "---")
+        lbl.setStyleSheet(f"color: #cdd6f4; font-weight: {'600' if is_selected else '400'}; border: none;")
+        lo.addWidget(lbl, 1)
 
-        # Delete
-        del_btn = QPushButton("X")
-        del_btn.setFixedSize(26, 26)
-        del_btn.setStyleSheet(
-            "background-color: transparent; color: #f38ba8; font-weight: 700; "
-            "border: none; font-size: 12px; padding: 0;"
-        )
-        del_btn.clicked.connect(lambda: self.deleted.emit(layer.id))
-        layout.addWidget(del_btn)
-
-    def _toggle_vis(self):
-        self.layer.visible = not self.layer.visible
-        self.vis_btn.setText("V" if self.layer.visible else "-")
-        self.visibility_changed.emit(self.layer.id, self.layer.visible)
+        dl = QPushButton("X")
+        dl.setFixedSize(24, 24)
+        dl.setStyleSheet("background: transparent; color: #f38ba8; font-weight: 700; border: none; font-size: 11px; padding: 0;")
+        dl.clicked.connect(lambda: self.deleted.emit(layer.id))
+        lo.addWidget(dl)
 
     def mousePressEvent(self, event):
         self.selected.emit(self.layer.id)
+
+    def contextMenuEvent(self, event):
+        menu = QMenu(self)
+        dup = menu.addAction("Duplicate Layer")
+        action = menu.exec(event.globalPos())
+        if action == dup:
+            self.duplicated.emit(self.layer.id)
 
 
 # ============================================================================
@@ -753,10 +860,15 @@ class GifTextApp(QMainWindow):
 
         self.layers: list[TextLayer] = []
         self.selected_layer: TextLayer | None = None
+        self.undo_mgr = UndoManager()
 
         self.playing = False
+        self.play_speed = 1.0
         self.play_timer = QTimer()
         self.play_timer.timeout.connect(self._advance_frame)
+
+        self._recent_files: list[str] = []
+        self._load_recent()
 
         self._build_ui()
 
@@ -770,38 +882,89 @@ class GifTextApp(QMainWindow):
         splitter = QSplitter(Qt.Orientation.Horizontal)
         root.addWidget(splitter)
 
-        # ── Left Panel: Canvas + Timeline ──
+        # Left panel
         left = QWidget()
         ll = QVBoxLayout(left)
-        ll.setContentsMargins(8, 8, 4, 0)
-        ll.setSpacing(6)
+        ll.setContentsMargins(8, 6, 4, 0)
+        ll.setSpacing(4)
 
-        # Top bar
+        # Toolbar
         topbar = QHBoxLayout()
+        topbar.setSpacing(6)
+
         self.btn_load = QPushButton("Load GIF")
         self.btn_load.setObjectName("accent")
-        self.btn_load.setFixedHeight(34)
+        self.btn_load.setFixedHeight(32)
         self.btn_load.clicked.connect(self._load_gif)
         topbar.addWidget(self.btn_load)
 
         self.btn_export = QPushButton("Export GIF")
         self.btn_export.setObjectName("accent")
-        self.btn_export.setFixedHeight(34)
+        self.btn_export.setFixedHeight(32)
         self.btn_export.clicked.connect(self._export_gif)
         self.btn_export.setEnabled(False)
         topbar.addWidget(self.btn_export)
 
+        # Save/Load project
+        self.btn_save_proj = QPushButton("Save Project")
+        self.btn_save_proj.setFixedHeight(32)
+        self.btn_save_proj.clicked.connect(self._save_project)
+        self.btn_save_proj.setEnabled(False)
+        topbar.addWidget(self.btn_save_proj)
+
+        self.btn_load_proj = QPushButton("Load Project")
+        self.btn_load_proj.setFixedHeight(32)
+        self.btn_load_proj.clicked.connect(self._load_project)
+        topbar.addWidget(self.btn_load_proj)
+
         topbar.addStretch()
+
+        # Undo/Redo
+        self.btn_undo = QPushButton("Undo")
+        self.btn_undo.setFixedHeight(32)
+        self.btn_undo.clicked.connect(self._undo)
+        self.btn_undo.setEnabled(False)
+        topbar.addWidget(self.btn_undo)
+
+        self.btn_redo = QPushButton("Redo")
+        self.btn_redo.setFixedHeight(32)
+        self.btn_redo.clicked.connect(self._redo)
+        self.btn_redo.setEnabled(False)
+        topbar.addWidget(self.btn_redo)
+
         self.info_label = QLabel("")
-        self.info_label.setStyleSheet("color: #a6adc8; font-size: 12px;")
+        self.info_label.setStyleSheet("color: #a6adc8; font-size: 11px;")
         topbar.addWidget(self.info_label)
         ll.addLayout(topbar)
 
-        # Hint
+        # Canvas options row
+        opts = QHBoxLayout()
+        opts.setSpacing(8)
+
+        self.chk_onion = QCheckBox("Onion Skin")
+        self.chk_onion.toggled.connect(self._toggle_onion)
+        opts.addWidget(self.chk_onion)
+
+        btn_reset_view = QPushButton("Reset View")
+        btn_reset_view.setFixedHeight(24)
+        btn_reset_view.setStyleSheet("font-size: 11px; padding: 2px 8px;")
+        btn_reset_view.clicked.connect(lambda: self.canvas.reset_view())
+        opts.addWidget(btn_reset_view)
+
+        opts.addStretch()
+
+        opts.addWidget(QLabel("Speed:"))
+        self.speed_combo = QComboBox()
+        self.speed_combo.addItems(["0.25x", "0.5x", "1x", "2x", "4x"])
+        self.speed_combo.setCurrentIndex(2)
+        self.speed_combo.currentTextChanged.connect(self._on_speed_changed)
+        self.speed_combo.setFixedWidth(70)
+        opts.addWidget(self.speed_combo)
+
         self.hint_label = QLabel("")
         self.hint_label.setStyleSheet("color: #585b70; font-size: 11px; font-style: italic;")
-        self.hint_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        ll.addWidget(self.hint_label)
+        opts.addWidget(self.hint_label)
+        ll.addLayout(opts)
 
         # Canvas
         self.canvas = GifCanvas()
@@ -815,24 +978,24 @@ class GifTextApp(QMainWindow):
         timeline = QFrame()
         timeline.setObjectName("timeline")
         tl = QVBoxLayout(timeline)
-        tl.setContentsMargins(12, 6, 12, 8)
-        tl.setSpacing(4)
+        tl.setContentsMargins(8, 4, 8, 6)
+        tl.setSpacing(3)
 
-        self.kf_bar = KeyframeBar()
-        self.kf_bar.frame_clicked.connect(self._set_frame)
-        tl.addWidget(self.kf_bar)
+        self.layer_timeline = LayerTimeline()
+        self.layer_timeline.frame_clicked.connect(self._set_frame)
+        tl.addWidget(self.layer_timeline)
 
         controls = QHBoxLayout()
         controls.setSpacing(6)
 
         self.btn_play = QPushButton("Play")
-        self.btn_play.setFixedSize(72, 30)
+        self.btn_play.setFixedSize(68, 28)
         self.btn_play.clicked.connect(self._toggle_play)
         self.btn_play.setEnabled(False)
         controls.addWidget(self.btn_play)
 
         self.btn_prev = QPushButton("<")
-        self.btn_prev.setFixedSize(34, 30)
+        self.btn_prev.setFixedSize(32, 28)
         self.btn_prev.clicked.connect(lambda: self._step_frame(-1))
         self.btn_prev.setEnabled(False)
         controls.addWidget(self.btn_prev)
@@ -843,7 +1006,7 @@ class GifTextApp(QMainWindow):
         controls.addWidget(self.frame_slider, 1)
 
         self.btn_next = QPushButton(">")
-        self.btn_next.setFixedSize(34, 30)
+        self.btn_next.setFixedSize(32, 28)
         self.btn_next.clicked.connect(lambda: self._step_frame(1))
         self.btn_next.setEnabled(False)
         controls.addWidget(self.btn_next)
@@ -857,51 +1020,63 @@ class GifTextApp(QMainWindow):
         ll.addWidget(timeline)
         splitter.addWidget(left)
 
-        # ── Right Panel: Layers + Properties ──
+        # Right panel
         right_scroll = QScrollArea()
         right_scroll.setWidgetResizable(True)
         right_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         right_inner = QWidget()
         rl = QVBoxLayout(right_inner)
-        rl.setContentsMargins(4, 8, 8, 8)
-        rl.setSpacing(6)
+        rl.setContentsMargins(4, 6, 8, 8)
+        rl.setSpacing(4)
         right_inner.setFixedWidth(310)
 
-        # ── Layers ──
-        layers_grp = QGroupBox("Text Layers")
-        layers_l = QVBoxLayout(layers_grp)
-        layers_l.setSpacing(4)
-
+        # Layers
+        lg = QGroupBox("Text Layers")
+        ll2 = QVBoxLayout(lg)
+        ll2.setSpacing(3)
         self.btn_add = QPushButton("+ Add Text Layer")
         self.btn_add.setObjectName("accent")
         self.btn_add.clicked.connect(self._add_layer)
         self.btn_add.setEnabled(False)
-        layers_l.addWidget(self.btn_add)
-
+        ll2.addWidget(self.btn_add)
         self.layers_list = QVBoxLayout()
-        self.layers_list.setSpacing(3)
-        layers_l.addLayout(self.layers_list)
-        rl.addWidget(layers_grp)
+        self.layers_list.setSpacing(2)
+        ll2.addLayout(self.layers_list)
+        rl.addWidget(lg)
 
-        # ── Text Properties ──
-        txt_grp = QGroupBox("Text")
-        tg = QGridLayout(txt_grp)
-        tg.setVerticalSpacing(5)
-        tg.setHorizontalSpacing(6)
+        # Presets
+        pg = QGroupBox("Quick Presets")
+        pl = QHBoxLayout(pg)
+        pl.setSpacing(4)
+        for name in MEME_PRESETS:
+            btn = QPushButton(name)
+            btn.setObjectName("preset")
+            btn.setFixedHeight(26)
+            btn.clicked.connect(lambda checked, n=name: self._apply_preset(n))
+            pl.addWidget(btn)
+        rl.addWidget(pg)
+
+        # Text Properties
+        tg = QGroupBox("Text")
+        tgl = QGridLayout(tg)
+        tgl.setVerticalSpacing(4)
+        tgl.setHorizontalSpacing(6)
         r = 0
 
-        tg.addWidget(QLabel("Text:"), r, 0)
-        self.txt_input = QLineEdit()
-        self.txt_input.setPlaceholderText("Type meme text...")
+        tgl.addWidget(QLabel("Text:"), r, 0, Qt.AlignmentFlag.AlignTop)
+        self.txt_input = QPlainTextEdit()
+        self.txt_input.setPlaceholderText("Type meme text...\n(supports multiple lines)")
+        self.txt_input.setMaximumHeight(60)
+        self.txt_input.setTabChangesFocus(True)
         self.txt_input.textChanged.connect(self._on_text_changed)
-        tg.addWidget(self.txt_input, r, 1, 1, 2)
+        tgl.addWidget(self.txt_input, r, 1, 1, 2)
         r += 1
 
-        tg.addWidget(QLabel("Font:"), r, 0)
+        tgl.addWidget(QLabel("Font:"), r, 0)
         self.font_combo = QFontComboBox()
         self.font_combo.setCurrentFont(QFont("Impact"))
         self.font_combo.currentFontChanged.connect(self._on_font_changed)
-        tg.addWidget(self.font_combo, r, 1, 1, 2)
+        tgl.addWidget(self.font_combo, r, 1, 1, 2)
         r += 1
 
         style_row = QHBoxLayout()
@@ -919,114 +1094,139 @@ class GifTextApp(QMainWindow):
         self.chk_shadow = QCheckBox("Shadow")
         self.chk_shadow.toggled.connect(self._on_style_changed)
         style_row.addWidget(self.chk_shadow)
-        tg.addLayout(style_row, r, 0, 1, 3)
+        self.chk_bgbox = QCheckBox("BG Box")
+        self.chk_bgbox.toggled.connect(self._on_style_changed)
+        style_row.addWidget(self.chk_bgbox)
+        tgl.addLayout(style_row, r, 0, 1, 3)
         r += 1
 
-        tg.addWidget(QLabel("Align:"), r, 0)
+        tgl.addWidget(QLabel("Align:"), r, 0)
         self.align_combo = QComboBox()
         self.align_combo.addItems(["center", "left", "right"])
         self.align_combo.currentTextChanged.connect(self._on_align_changed)
-        tg.addWidget(self.align_combo, r, 1, 1, 2)
-        rl.addWidget(txt_grp)
+        tgl.addWidget(self.align_combo, r, 1, 1, 2)
+        rl.addWidget(tg)
 
-        # ── Animation Properties ──
-        anim_grp = QGroupBox("Animation")
-        ag = QGridLayout(anim_grp)
-        ag.setVerticalSpacing(5)
-        ag.setHorizontalSpacing(6)
+        # Animation
+        ag = QGroupBox("Animation")
+        agl = QGridLayout(ag)
+        agl.setVerticalSpacing(4)
+        agl.setHorizontalSpacing(6)
         ar = 0
 
-        ag.addWidget(QLabel("Size:"), ar, 0)
+        agl.addWidget(QLabel("Size:"), ar, 0)
         self.spin_size = QSpinBox()
         self.spin_size.setRange(8, 200)
         self.spin_size.setValue(48)
         self.spin_size.valueChanged.connect(self._on_anim_prop_changed)
-        ag.addWidget(self.spin_size, ar, 1, 1, 2)
+        agl.addWidget(self.spin_size, ar, 1, 1, 2)
         ar += 1
 
-        ag.addWidget(QLabel("Opacity:"), ar, 0)
+        agl.addWidget(QLabel("Opacity:"), ar, 0)
         self.spin_opacity = QDoubleSpinBox()
         self.spin_opacity.setRange(0.0, 1.0)
         self.spin_opacity.setSingleStep(0.05)
         self.spin_opacity.setValue(1.0)
         self.spin_opacity.valueChanged.connect(self._on_anim_prop_changed)
-        ag.addWidget(self.spin_opacity, ar, 1, 1, 2)
+        agl.addWidget(self.spin_opacity, ar, 1, 1, 2)
         ar += 1
 
-        ag.addWidget(QLabel("Rotation:"), ar, 0)
+        agl.addWidget(QLabel("Rotation:"), ar, 0)
         self.spin_rotation = QDoubleSpinBox()
         self.spin_rotation.setRange(-360, 360)
         self.spin_rotation.setSingleStep(5)
-        self.spin_rotation.setValue(0)
         self.spin_rotation.valueChanged.connect(self._on_anim_prop_changed)
-        ag.addWidget(self.spin_rotation, ar, 1, 1, 2)
+        agl.addWidget(self.spin_rotation, ar, 1, 1, 2)
         ar += 1
 
-        ag.addWidget(QLabel("Outline:"), ar, 0)
+        agl.addWidget(QLabel("Outline:"), ar, 0)
         self.spin_outline = QSpinBox()
         self.spin_outline.setRange(0, 20)
         self.spin_outline.setValue(3)
         self.spin_outline.valueChanged.connect(self._on_anim_prop_changed)
-        ag.addWidget(self.spin_outline, ar, 1, 1, 2)
+        agl.addWidget(self.spin_outline, ar, 1, 1, 2)
         ar += 1
 
-        # Colors
         color_row = QHBoxLayout()
         self.btn_color = QPushButton("Text Color")
-        self.btn_color.setFixedHeight(30)
+        self.btn_color.setFixedHeight(28)
         self.btn_color.clicked.connect(lambda: self._pick_color("text"))
         self.btn_color.setStyleSheet("background: #ffffff; color: #000; border-radius: 4px; font-weight: 600;")
         color_row.addWidget(self.btn_color)
         self.btn_outline_color = QPushButton("Outline")
-        self.btn_outline_color.setFixedHeight(30)
+        self.btn_outline_color.setFixedHeight(28)
         self.btn_outline_color.clicked.connect(lambda: self._pick_color("outline"))
         self.btn_outline_color.setStyleSheet("background: #000000; color: #fff; border-radius: 4px; font-weight: 600;")
         color_row.addWidget(self.btn_outline_color)
-        ag.addLayout(color_row, ar, 0, 1, 3)
+        agl.addLayout(color_row, ar, 0, 1, 3)
         ar += 1
 
-        # Position
         self.pos_label = QLabel("Drag text on canvas to position")
         self.pos_label.setStyleSheet("color: #585b70; font-size: 11px;")
-        ag.addWidget(self.pos_label, ar, 0, 1, 3)
+        agl.addWidget(self.pos_label, ar, 0, 1, 3)
         ar += 1
 
-        # Keyframe controls
         kf_row = QHBoxLayout()
         self.btn_set_kf = QPushButton("Set Keyframe")
         self.btn_set_kf.setObjectName("keyframeSet")
-        self.btn_set_kf.setFixedHeight(32)
+        self.btn_set_kf.setFixedHeight(30)
         self.btn_set_kf.clicked.connect(self._set_keyframe)
         kf_row.addWidget(self.btn_set_kf)
         self.btn_del_kf = QPushButton("Delete KF")
         self.btn_del_kf.setObjectName("keyframeDel")
-        self.btn_del_kf.setFixedHeight(32)
+        self.btn_del_kf.setFixedHeight(30)
         self.btn_del_kf.clicked.connect(self._delete_keyframe)
         kf_row.addWidget(self.btn_del_kf)
-        ag.addLayout(kf_row, ar, 0, 1, 3)
+        self.btn_copy_kf = QPushButton("Copy KF...")
+        self.btn_copy_kf.setFixedHeight(30)
+        self.btn_copy_kf.clicked.connect(self._copy_keyframe_range)
+        kf_row.addWidget(self.btn_copy_kf)
+        agl.addLayout(kf_row, ar, 0, 1, 3)
         ar += 1
 
         self.kf_info = QLabel("")
         self.kf_info.setStyleSheet("color: #f9e2af; font-size: 11px;")
         self.kf_info.setWordWrap(True)
-        ag.addWidget(self.kf_info, ar, 0, 1, 3)
+        agl.addWidget(self.kf_info, ar, 0, 1, 3)
+        rl.addWidget(ag)
 
-        rl.addWidget(anim_grp)
+        # Timing
+        tmg = QGroupBox("Layer Timing")
+        tmgl = QGridLayout(tmg)
+        tmgl.setVerticalSpacing(4)
+        tr = 0
 
-        # ── Tips ──
-        tips_grp = QGroupBox("Tips")
-        tips_l = QVBoxLayout(tips_grp)
-        tips = QLabel(
-            "1. Click text on canvas to select it\n"
-            "2. Drag to reposition\n"
-            "3. Mousewheel on canvas = step frames\n"
-            "4. Drag again on new frame = auto keyframe\n"
-            "5. Text smoothly moves between keyframes"
-        )
-        tips.setStyleSheet("color: #a6adc8; font-size: 11px; line-height: 1.4;")
-        tips.setWordWrap(True)
-        tips_l.addWidget(tips)
-        rl.addWidget(tips_grp)
+        tmgl.addWidget(QLabel("Start Frame:"), tr, 0)
+        self.spin_frame_in = QSpinBox()
+        self.spin_frame_in.setRange(0, 9999)
+        self.spin_frame_in.valueChanged.connect(self._on_timing_changed)
+        tmgl.addWidget(self.spin_frame_in, tr, 1)
+        tr += 1
+
+        tmgl.addWidget(QLabel("End Frame:"), tr, 0)
+        self.spin_frame_out = QSpinBox()
+        self.spin_frame_out.setRange(-1, 9999)
+        self.spin_frame_out.setSpecialValueText("Last")
+        self.spin_frame_out.setValue(-1)
+        self.spin_frame_out.valueChanged.connect(self._on_timing_changed)
+        tmgl.addWidget(self.spin_frame_out, tr, 1)
+        tr += 1
+
+        tmgl.addWidget(QLabel("Fade In:"), tr, 0)
+        self.spin_fade_in = QSpinBox()
+        self.spin_fade_in.setRange(0, 100)
+        self.spin_fade_in.setSuffix(" frames")
+        self.spin_fade_in.valueChanged.connect(self._on_timing_changed)
+        tmgl.addWidget(self.spin_fade_in, tr, 1)
+        tr += 1
+
+        tmgl.addWidget(QLabel("Fade Out:"), tr, 0)
+        self.spin_fade_out = QSpinBox()
+        self.spin_fade_out.setRange(0, 100)
+        self.spin_fade_out.setSuffix(" frames")
+        self.spin_fade_out.valueChanged.connect(self._on_timing_changed)
+        tmgl.addWidget(self.spin_fade_out, tr, 1)
+        rl.addWidget(tmg)
 
         rl.addStretch()
         right_scroll.setWidget(right_inner)
@@ -1035,19 +1235,20 @@ class GifTextApp(QMainWindow):
         splitter.setStretchFactor(1, 0)
         splitter.setSizes([900, 310])
 
-        self.statusBar().showMessage("GifText v" + VERSION + " - Load a GIF to get started")
+        self.statusBar().showMessage(f"GifText v{VERSION} - Load a GIF to get started")
 
-    # ====================================================================
+    # ================================================================
     #  GIF Loading
-    # ====================================================================
+    # ================================================================
 
     def _load_gif(self):
         path, _ = QFileDialog.getOpenFileName(
             self, "Open Animated GIF", "", "GIF Files (*.gif);;All Files (*)"
         )
-        if not path:
-            return
+        if path:
+            self._load_gif_from_path(path)
 
+    def _load_gif_from_path(self, path):
         try:
             img = Image.open(path)
             if not hasattr(img, 'n_frames') or img.n_frames < 2:
@@ -1079,23 +1280,21 @@ class GifTextApp(QMainWindow):
             self.btn_next.setEnabled(True)
             self.btn_add.setEnabled(True)
             self.btn_export.setEnabled(True)
-            self.kf_bar.total_frames = self.total_frames
-            self.info_label.setText(
-                f"{self.gif_width}x{self.gif_height} | {self.total_frames} frames | "
-                f"{os.path.basename(path)}"
-            )
-            self.hint_label.setText(
-                "Click [+ Add Text Layer] to add names, then drag them into position. "
-                "Mousewheel on canvas to step frames."
-            )
+            self.btn_save_proj.setEnabled(True)
+            self.layer_timeline.total_frames = self.total_frames
+            self.info_label.setText(f"{self.gif_width}x{self.gif_height} | {self.total_frames}f | {os.path.basename(path)}")
+            self.hint_label.setText("Add text layers, drag to position, mousewheel = step frames, Ctrl+wheel = zoom")
+
+            self._add_recent(path)
+            self._snapshot()
             self._update_all()
             self.statusBar().showMessage(f"Loaded {os.path.basename(path)}")
         except Exception as e:
             self.statusBar().showMessage(f"Error: {e}")
 
-    # ====================================================================
+    # ================================================================
     #  Playback
-    # ====================================================================
+    # ================================================================
 
     def _toggle_play(self):
         if self.playing:
@@ -1112,15 +1311,14 @@ class GifTextApp(QMainWindow):
             return
         nxt = (self.current_frame + 1) % self.total_frames
         self.frame_slider.setValue(nxt)
-        delay = self.frame_durations[self.current_frame]
-        self.play_timer.start(delay)
+        delay = int(self.frame_durations[self.current_frame] / self.play_speed)
+        self.play_timer.start(max(10, delay))
 
-    def _step_frame(self, delta: int):
-        if not self.gif_frames:
-            return
-        self._set_frame(self.current_frame + delta)
+    def _step_frame(self, delta):
+        if self.gif_frames:
+            self._set_frame(self.current_frame + delta)
 
-    def _set_frame(self, frame: int):
+    def _set_frame(self, frame):
         if not self.gif_frames:
             return
         self.current_frame = max(0, min(frame, self.total_frames - 1))
@@ -1130,62 +1328,100 @@ class GifTextApp(QMainWindow):
         self.frame_label.setText(f"{self.current_frame + 1} / {self.total_frames}")
         self._update_all()
 
+    def _on_speed_changed(self, text):
+        self.play_speed = float(text.replace('x', ''))
+
     def _update_all(self):
         if not self.gif_frames:
             return
         sel_id = self.selected_layer.id if self.selected_layer else -1
-        self.canvas.set_frame(self.gif_frames[self.current_frame], self.layers,
-                              self.current_frame, sel_id)
-        self._update_kf_bar()
+        prev_pm = self.gif_frames[self.current_frame - 1] if self.current_frame > 0 else None
+        self.canvas.set_frame(
+            self.gif_frames[self.current_frame], prev_pm,
+            self.layers, self.current_frame, sel_id, self.total_frames
+        )
+        self.layer_timeline.layers = self.layers
+        self.layer_timeline.current_frame = self.current_frame
+        self.layer_timeline.selected_id = sel_id
+        self.layer_timeline.total_frames = self.total_frames
+        self.layer_timeline.update()
         self._sync_props_from_layer()
+        self._update_undo_btns()
 
-    # ====================================================================
+    # ================================================================
     #  Layers
-    # ====================================================================
+    # ================================================================
 
     def _add_layer(self):
         layer = TextLayer(f"Name {len(self.layers) + 1}")
         layer.keyframes = [TextKeyframe(frame=0, x=0.3 + 0.2 * (len(self.layers) % 3), y=0.3)]
+        layer.frame_out = -1
         self.layers.append(layer)
         self.selected_layer = layer
+        self._snapshot()
         self._rebuild_layer_list()
         self._update_all()
         self.txt_input.setFocus()
         self.txt_input.selectAll()
-        self.statusBar().showMessage(f"Added layer - type a name and drag it into position")
+        self.statusBar().showMessage("Added layer - type a name and drag into position")
+
+    def _duplicate_layer(self, layer_id):
+        src = next((l for l in self.layers if l.id == layer_id), None)
+        if not src:
+            return
+        layer = TextLayer(src.text + " copy")
+        layer.font_family = src.font_family
+        layer.bold = src.bold
+        layer.italic = src.italic
+        layer.alignment = src.alignment
+        layer.shadow = src.shadow
+        layer.uppercase = src.uppercase
+        layer.bg_box = src.bg_box
+        layer.frame_in = src.frame_in
+        layer.frame_out = src.frame_out
+        layer.fade_in = src.fade_in
+        layer.fade_out = src.fade_out
+        layer.keyframes = [kf.copy() for kf in src.keyframes]
+        # Offset position slightly
+        for kf in layer.keyframes:
+            kf.x = min(1.0, kf.x + 0.05)
+            kf.y = min(1.0, kf.y + 0.05)
+        self.layers.append(layer)
+        self.selected_layer = layer
+        self._snapshot()
+        self._rebuild_layer_list()
+        self._update_all()
 
     def _rebuild_layer_list(self):
         while self.layers_list.count():
             item = self.layers_list.takeAt(0)
             if item.widget():
                 item.widget().deleteLater()
-
         for layer in self.layers:
             sel = self.selected_layer and self.selected_layer.id == layer.id
             w = LayerWidget(layer, sel)
             w.selected.connect(self._select_layer)
             w.deleted.connect(self._delete_layer)
-            w.visibility_changed.connect(self._on_vis_changed)
+            w.duplicated.connect(self._duplicate_layer)
+            w.visibility_changed.connect(lambda *_: self._update_all())
             self.layers_list.addWidget(w)
 
-    def _select_layer(self, layer_id: int):
+    def _select_layer(self, layer_id):
         self.selected_layer = next((l for l in self.layers if l.id == layer_id), None)
         self._rebuild_layer_list()
         self._update_all()
 
-    def _delete_layer(self, layer_id: int):
+    def _delete_layer(self, layer_id):
         self.layers = [l for l in self.layers if l.id != layer_id]
         if self.selected_layer and self.selected_layer.id == layer_id:
             self.selected_layer = self.layers[-1] if self.layers else None
+        self._snapshot()
         self._rebuild_layer_list()
         self._update_all()
 
-    def _on_vis_changed(self, layer_id, visible):
-        self._update_all()
-
-    # ====================================================================
+    # ================================================================
     #  Canvas Interaction
-    # ====================================================================
+    # ================================================================
 
     def _on_text_moved(self, rx, ry):
         if not self.selected_layer:
@@ -1201,13 +1437,16 @@ class GifTextApp(QMainWindow):
         self._update_all()
 
     def _on_canvas_click(self, rx, ry):
-        # If we have a selected layer but clicked empty space, move it there
         if self.selected_layer:
             self._on_text_moved(rx, ry)
 
-    # ====================================================================
+    def _toggle_onion(self, checked):
+        self.canvas.onion_skin = checked
+        self._update_all()
+
+    # ================================================================
     #  Properties Sync
-    # ====================================================================
+    # ================================================================
 
     def _sync_props_from_layer(self):
         layer = self.selected_layer
@@ -1217,12 +1456,14 @@ class GifTextApp(QMainWindow):
             return
 
         self._block(True)
-        self.txt_input.setText(layer.text)
+        if self.txt_input.toPlainText() != layer.text:
+            self.txt_input.setPlainText(layer.text)
         self.font_combo.setCurrentFont(QFont(layer.font_family))
         self.chk_bold.setChecked(layer.bold)
         self.chk_italic.setChecked(layer.italic)
         self.chk_upper.setChecked(layer.uppercase)
         self.chk_shadow.setChecked(layer.shadow)
+        self.chk_bgbox.setChecked(layer.bg_box)
         self.align_combo.setCurrentText(layer.alignment)
 
         kf = layer.get_interpolated(self.current_frame)
@@ -1244,22 +1485,27 @@ class GifTextApp(QMainWindow):
         existing = layer.get_keyframe_at(self.current_frame)
         kf_frames = sorted(k.frame + 1 for k in layer.keyframes)
         marker = "[KEYFRAME]" if existing else "[interpolated]"
-        self.kf_info.setText(f"{marker}  Keyframes at frames: {', '.join(map(str, kf_frames))}")
+        self.kf_info.setText(f"{marker}  KFs: {', '.join(map(str, kf_frames))}")
 
-        self.kf_bar.accent = layer.accent
+        self.spin_frame_in.setValue(layer.frame_in)
+        self.spin_frame_out.setValue(layer.frame_out)
+        self.spin_fade_in.setValue(layer.fade_in)
+        self.spin_fade_out.setValue(layer.fade_out)
+
         self._block(False)
 
     def _block(self, b):
         for w in [self.txt_input, self.spin_size, self.spin_opacity,
                   self.spin_rotation, self.spin_outline, self.font_combo,
                   self.chk_bold, self.chk_italic, self.chk_upper, self.chk_shadow,
-                  self.align_combo]:
+                  self.chk_bgbox, self.align_combo, self.spin_frame_in,
+                  self.spin_frame_out, self.spin_fade_in, self.spin_fade_out]:
             w.blockSignals(b)
 
-    def _on_text_changed(self, text):
+    def _on_text_changed(self):
         if not self.selected_layer:
             return
-        self.selected_layer.text = text
+        self.selected_layer.text = self.txt_input.toPlainText()
         self._rebuild_layer_list()
         self._update_all()
 
@@ -1275,6 +1521,7 @@ class GifTextApp(QMainWindow):
         self.selected_layer.italic = self.chk_italic.isChecked()
         self.selected_layer.uppercase = self.chk_upper.isChecked()
         self.selected_layer.shadow = self.chk_shadow.isChecked()
+        self.selected_layer.bg_box = self.chk_bgbox.isChecked()
         self._update_all()
 
     def _on_align_changed(self, a):
@@ -1283,7 +1530,15 @@ class GifTextApp(QMainWindow):
             self._update_all()
 
     def _on_anim_prop_changed(self):
-        # Live preview: update canvas but don't auto-create keyframe
+        self._update_all()
+
+    def _on_timing_changed(self):
+        if not self.selected_layer:
+            return
+        self.selected_layer.frame_in = self.spin_frame_in.value()
+        self.selected_layer.frame_out = self.spin_frame_out.value()
+        self.selected_layer.fade_in = self.spin_fade_in.value()
+        self.selected_layer.fade_out = self.spin_fade_out.value()
         self._update_all()
 
     def _pick_color(self, target):
@@ -1294,8 +1549,6 @@ class GifTextApp(QMainWindow):
         color = QColorDialog.getColor(initial, self, f"Pick {target} color")
         if not color.isValid():
             return
-
-        # Auto-set keyframe with new color
         layer = self.selected_layer
         existing = layer.get_keyframe_at(self.current_frame)
         if existing is None:
@@ -1306,11 +1559,36 @@ class GifTextApp(QMainWindow):
             existing.color = color.name()
         else:
             existing.outline_color = color.name()
+        self._snapshot()
         self._update_all()
 
-    # ====================================================================
+    def _apply_preset(self, name):
+        if not self.selected_layer:
+            return
+        p = MEME_PRESETS[name]
+        layer = self.selected_layer
+        layer.font_family = p["font"]
+        layer.bold = p["bold"]
+        layer.uppercase = p["upper"]
+        layer.shadow = p["shadow"]
+        layer.bg_box = p["bg_box"]
+        # Apply to current keyframe
+        kf = layer.get_keyframe_at(self.current_frame)
+        if kf is None:
+            kf = layer.get_interpolated(self.current_frame)
+            kf.frame = self.current_frame
+            layer.set_keyframe(kf)
+        kf.font_size = p["size"]
+        kf.color = p["color"]
+        kf.outline_color = p["outline_color"]
+        kf.outline_width = p["outline_width"]
+        self._snapshot()
+        self._update_all()
+        self.statusBar().showMessage(f"Applied preset: {name}")
+
+    # ================================================================
     #  Keyframes
-    # ====================================================================
+    # ================================================================
 
     def _set_keyframe(self):
         if not self.selected_layer:
@@ -1320,12 +1598,12 @@ class GifTextApp(QMainWindow):
         if kf is None:
             kf = layer.get_interpolated(self.current_frame)
             kf.frame = self.current_frame
-
         kf.font_size = self.spin_size.value()
         kf.opacity = self.spin_opacity.value()
         kf.rotation = self.spin_rotation.value()
         kf.outline_width = self.spin_outline.value()
         layer.set_keyframe(kf)
+        self._snapshot()
         self._update_all()
         self.statusBar().showMessage(f"Keyframe set at frame {self.current_frame + 1}")
 
@@ -1334,21 +1612,159 @@ class GifTextApp(QMainWindow):
             return
         if self.selected_layer.get_keyframe_at(self.current_frame):
             self.selected_layer.remove_keyframe(self.current_frame)
+            self._snapshot()
             self._update_all()
             self.statusBar().showMessage(f"Keyframe deleted at frame {self.current_frame + 1}")
 
-    def _update_kf_bar(self):
-        if self.selected_layer:
-            self.kf_bar.keyframe_positions = [k.frame for k in self.selected_layer.keyframes]
-        else:
-            self.kf_bar.keyframe_positions = []
-        self.kf_bar.current_frame = self.current_frame
-        self.kf_bar.total_frames = self.total_frames
-        self.kf_bar.update()
+    def _copy_keyframe_range(self):
+        if not self.selected_layer:
+            return
+        layer = self.selected_layer
+        kf = layer.get_keyframe_at(self.current_frame)
+        if not kf:
+            kf = layer.get_interpolated(self.current_frame)
 
-    # ====================================================================
+        # Copy to next 10 frames (or remaining)
+        count = 0
+        for f in range(self.current_frame, min(self.current_frame + 10, self.total_frames)):
+            new_kf = kf.copy()
+            new_kf.frame = f
+            layer.set_keyframe(new_kf)
+            count += 1
+
+        self._snapshot()
+        self._update_all()
+        self.statusBar().showMessage(
+            f"Copied keyframe to {count} frames ({self.current_frame + 1}-{min(self.current_frame + 10, self.total_frames)})"
+        )
+
+    # ================================================================
+    #  Undo / Redo
+    # ================================================================
+
+    def _snapshot(self):
+        self.undo_mgr.snapshot(self.layers)
+        self._update_undo_btns()
+
+    def _undo(self):
+        result = self.undo_mgr.undo()
+        if result is not None:
+            self.layers = result
+            self.selected_layer = self.layers[-1] if self.layers else None
+            self._rebuild_layer_list()
+            self._update_all()
+            self.statusBar().showMessage("Undo")
+
+    def _redo(self):
+        result = self.undo_mgr.redo()
+        if result is not None:
+            self.layers = result
+            self.selected_layer = self.layers[-1] if self.layers else None
+            self._rebuild_layer_list()
+            self._update_all()
+            self.statusBar().showMessage("Redo")
+
+    def _update_undo_btns(self):
+        self.btn_undo.setEnabled(self.undo_mgr.can_undo)
+        self.btn_redo.setEnabled(self.undo_mgr.can_redo)
+
+    def keyPressEvent(self, event):
+        # Ctrl+Z / Ctrl+Y
+        if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+            if event.key() == Qt.Key.Key_Z:
+                if event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
+                    self._redo()
+                else:
+                    self._undo()
+                return
+            elif event.key() == Qt.Key.Key_Y:
+                self._redo()
+                return
+            elif event.key() == Qt.Key.Key_S:
+                self._save_project()
+                return
+        super().keyPressEvent(event)
+
+    # ================================================================
+    #  Project Save / Load
+    # ================================================================
+
+    def _save_project(self):
+        if not self.gif_path:
+            return
+        default = os.path.splitext(self.gif_path)[0] + ".giftext"
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Save Project", default, "GifText Project (*.giftext)"
+        )
+        if not path:
+            return
+        project = {
+            "version": VERSION,
+            "gif_path": self.gif_path,
+            "layers": [l.to_dict() for l in self.layers],
+        }
+        with open(path, 'w') as f:
+            json.dump(project, f, indent=2)
+        self.statusBar().showMessage(f"Project saved: {os.path.basename(path)}")
+
+    def _load_project(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Load Project", "", "GifText Project (*.giftext);;All Files (*)"
+        )
+        if not path:
+            return
+        try:
+            with open(path) as f:
+                project = json.load(f)
+            gif_path = project.get("gif_path", "")
+            if not os.path.exists(gif_path):
+                # Try relative to project file
+                alt = os.path.join(os.path.dirname(path), os.path.basename(gif_path))
+                if os.path.exists(alt):
+                    gif_path = alt
+                else:
+                    self.statusBar().showMessage(f"GIF not found: {gif_path}")
+                    return
+
+            self._load_gif_from_path(gif_path)
+            TextLayer._counter = 0
+            self.layers = [TextLayer.from_dict(d) for d in project.get("layers", [])]
+            self.selected_layer = self.layers[0] if self.layers else None
+            self._snapshot()
+            self._rebuild_layer_list()
+            self._update_all()
+            self.statusBar().showMessage(f"Project loaded: {os.path.basename(path)}")
+        except Exception as e:
+            self.statusBar().showMessage(f"Error loading project: {e}")
+
+    # ================================================================
+    #  Recent Files
+    # ================================================================
+
+    def _recent_path(self):
+        return os.path.join(os.path.expanduser("~"), ".giftext_recent.json")
+
+    def _load_recent(self):
+        try:
+            with open(self._recent_path()) as f:
+                self._recent_files = json.load(f)[:10]
+        except Exception:
+            self._recent_files = []
+
+    def _add_recent(self, path):
+        path = os.path.abspath(path)
+        self._recent_files = [p for p in self._recent_files if p != path]
+        self._recent_files.insert(0, path)
+        self._recent_files = self._recent_files[:10]
+        try:
+            with open(self._recent_path(), 'w') as f:
+                json.dump(self._recent_files, f)
+        except Exception:
+            pass
+
+    # ================================================================
     #  Export
-    # ====================================================================
+    # ================================================================
 
     def _export_gif(self):
         if not self.gif_pil_frames:
@@ -1356,9 +1772,9 @@ class GifTextApp(QMainWindow):
 
         default_name = os.path.splitext(os.path.basename(self.gif_path))[0] + "_meme.gif"
         default_dir = os.path.dirname(self.gif_path)
-        path, _ = QFileDialog.getSaveFileName(
-            self, "Export GIF", os.path.join(default_dir, default_name),
-            "GIF Files (*.gif)"
+        path, filt = QFileDialog.getSaveFileName(
+            self, "Export", os.path.join(default_dir, default_name),
+            "GIF (*.gif);;WebP (*.webp);;PNG Sequence (*.png)"
         )
         if not path:
             return
@@ -1367,32 +1783,52 @@ class GifTextApp(QMainWindow):
         QApplication.processEvents()
 
         try:
-            output_frames = []
+            rendered = []
             for i, pil_frame in enumerate(self.gif_pil_frames):
                 frame = pil_frame.copy()
                 for layer in self.layers:
-                    if not layer.visible:
+                    if not layer.is_visible_at(i, self.total_frames):
                         continue
                     frame = self._render_text_pil(frame, layer, i)
-                output_frames.append(frame.convert("RGB"))
+                rendered.append(frame)
 
-            output_frames[0].save(
-                path, save_all=True, append_images=output_frames[1:],
-                duration=self.frame_durations, loop=0, optimize=False
-            )
+            ext = os.path.splitext(path)[1].lower()
+
+            if ext == '.webp':
+                rgb_frames = [f.convert("RGBA") for f in rendered]
+                rgb_frames[0].save(
+                    path, save_all=True, append_images=rgb_frames[1:],
+                    duration=self.frame_durations, loop=0, lossless=False, quality=85
+                )
+            elif ext == '.png':
+                # PNG sequence
+                base = os.path.splitext(path)[0]
+                for i, frame in enumerate(rendered):
+                    frame.save(f"{base}_{i:04d}.png")
+            else:
+                rgb_frames = [f.convert("RGB") for f in rendered]
+                rgb_frames[0].save(
+                    path, save_all=True, append_images=rgb_frames[1:],
+                    duration=self.frame_durations, loop=0, optimize=False
+                )
+
             self.statusBar().showMessage(f"Exported: {os.path.basename(path)}")
         except Exception as e:
             self.statusBar().showMessage(f"Export error: {e}")
 
-    def _render_text_pil(self, frame: Image.Image, layer: TextLayer, frame_idx: int) -> Image.Image:
+    def _render_text_pil(self, frame, layer, frame_idx):
         kf = layer.get_interpolated(frame_idx)
         text = layer.text.upper() if layer.uppercase else layer.text
         if not text:
             return frame
 
+        fade = layer.get_fade_opacity(frame_idx, self.total_frames)
+        effective_alpha = int(kf.opacity * fade * 255)
+        if effective_alpha <= 0:
+            return frame
+
         overlay = Image.new("RGBA", frame.size, (0, 0, 0, 0))
         draw = ImageDraw.Draw(overlay)
-
         font = self._get_pil_font(layer, kf.font_size)
 
         lines = text.split('\n')
@@ -1400,9 +1836,9 @@ class GifTextApp(QMainWindow):
         total_h = 0
         for line in lines:
             bbox = draw.textbbox((0, 0), line, font=font)
-            w, h = bbox[2] - bbox[0], bbox[3] - bbox[1]
-            line_sizes.append((w, h))
-            total_h += h
+            lw, lh = bbox[2] - bbox[0], bbox[3] - bbox[1]
+            line_sizes.append((lw, lh))
+            total_h += lh
 
         cx = kf.x * frame.width
         cy = kf.y * frame.height
@@ -1410,7 +1846,14 @@ class GifTextApp(QMainWindow):
 
         text_rgb = tuple(int(kf.color[i:i+2], 16) for i in (1, 3, 5))
         outline_rgb = tuple(int(kf.outline_color[i:i+2], 16) for i in (1, 3, 5))
-        alpha = int(kf.opacity * 255)
+
+        # Background box
+        if layer.bg_box:
+            max_lw = max(s[0] for s in line_sizes)
+            box_rect = [cx - max_lw / 2 - 8, cy - total_h / 2 - 8,
+                        cx + max_lw / 2 + 8, cy + total_h / 2 + 8]
+            draw.rounded_rectangle(box_rect, radius=4,
+                                   fill=(0, 0, 0, int(160 * kf.opacity * fade)))
 
         for i, line in enumerate(lines):
             lw, lh = line_sizes[i]
@@ -1422,25 +1865,25 @@ class GifTextApp(QMainWindow):
             else:
                 lx = cx + max_w / 2 - lw
 
-            # Outline via stroke_width if available, else manual offsets
             if kf.outline_width > 0:
                 try:
                     draw.text((lx, y_cursor), line, font=font,
-                              fill=(*outline_rgb, alpha),
+                              fill=(*outline_rgb, effective_alpha),
                               stroke_width=kf.outline_width,
-                              stroke_fill=(*outline_rgb, alpha))
+                              stroke_fill=(*outline_rgb, effective_alpha))
                 except TypeError:
                     ow = kf.outline_width
                     for dx in range(-ow, ow + 1):
                         for dy in range(-ow, ow + 1):
                             if dx * dx + dy * dy <= ow * ow:
                                 draw.text((lx + dx, y_cursor + dy), line, font=font,
-                                          fill=(*outline_rgb, alpha))
+                                          fill=(*outline_rgb, effective_alpha))
 
             if layer.shadow:
-                draw.text((lx + 2, y_cursor + 2), line, font=font, fill=(0, 0, 0, alpha // 2))
+                draw.text((lx + 2, y_cursor + 2), line, font=font,
+                          fill=(0, 0, 0, effective_alpha // 2))
 
-            draw.text((lx, y_cursor), line, font=font, fill=(*text_rgb, alpha))
+            draw.text((lx, y_cursor), line, font=font, fill=(*text_rgb, effective_alpha))
             y_cursor += lh
 
         if kf.rotation != 0:
@@ -1449,20 +1892,17 @@ class GifTextApp(QMainWindow):
 
         return Image.alpha_composite(frame, overlay)
 
-    def _get_pil_font(self, layer: TextLayer, size: int):
+    def _get_pil_font(self, layer, size):
         family = layer.font_family.lower().replace(' ', '')
         candidates = []
         if layer.bold and layer.italic:
-            candidates.append(f"{family}bi.ttf")
-            candidates.append(f"{family}z.ttf")
+            candidates += [f"{family}bi.ttf", f"{family}z.ttf"]
         if layer.bold:
-            candidates.append(f"{family}bd.ttf")
-            candidates.append(f"{family}b.ttf")
+            candidates += [f"{family}bd.ttf", f"{family}b.ttf"]
         if layer.italic:
             candidates.append(f"{family}i.ttf")
         candidates.append(f"{family}.ttf")
         candidates += ["impact.ttf", "arialbd.ttf", "arial.ttf"]
-
         for name in candidates:
             try:
                 return ImageFont.truetype(f"C:/Windows/Fonts/{name}", size)
