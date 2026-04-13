@@ -1,5 +1,7 @@
 # GifText
 
+![Version](https://img.shields.io/badge/version-v1.2.1-blue) ![License](https://img.shields.io/badge/license-MIT-green) ![Platform](https://img.shields.io/badge/platform-Python-lightgrey)
+
 Add animated text to GIFs for meme creation. Track text labels on moving subjects with keyframe-based animation and smooth interpolation.
 
 **The only actively maintained desktop app for animated GIF text editing.**
