@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-GifText v1.3.3 - Animated GIF Text Editor
+GifText v1.3.4 - Animated GIF Text Editor
 Full-featured meme text animator with keyframe animation, onion skinning,
 undo/redo, project save/load, drag-resize, text presets, and more.
 """
@@ -12,6 +12,7 @@ import sys
 import os
 import math
 import json
+import re
 from pathlib import Path
 
 
@@ -46,7 +47,7 @@ from PIL import Image, ImageDraw, ImageFont
 import cv2
 import numpy as np
 
-VERSION = "1.3.3"
+VERSION = "1.3.4"
 
 LAYER_COLORS = [
     "#89b4fa", "#a6e3a1", "#f9e2af", "#f38ba8", "#cba6f7",
@@ -201,6 +202,35 @@ def build_effect_keyframes(layer, effect_name, start_frame, frame_count):
 
         keyframes.append(kf)
     return keyframes
+
+
+def apply_staggered_text(text, mode, frame, start_frame, frames_per_unit):
+    mode = (mode or "off").lower()
+    if mode == "off" or not text:
+        return text
+
+    relative = max(0, frame - start_frame)
+    visible_units = relative // max(1, int(frames_per_unit)) + 1
+
+    if mode == "lines":
+        return "\n".join(text.split("\n")[:visible_units])
+    if mode == "letters":
+        return text[:visible_units]
+    if mode == "words":
+        shown = 0
+        output = []
+        for token in re.findall(r"\s+|\S+", text):
+            if token.isspace():
+                if shown > 0:
+                    output.append(token)
+                continue
+            if shown >= visible_units:
+                break
+            output.append(token)
+            shown += 1
+        return "".join(output).rstrip()
+
+    return text
 
 DARK_STYLE = """
 QMainWindow, QWidget {
@@ -545,6 +575,8 @@ class TextLayer:
         self.path_points = []
         self.path_start_frame = 0
         self.path_end_frame = -1
+        self.stagger_mode = "off"
+        self.stagger_frames = 2
 
     def is_visible_at(self, frame: int, total_frames: int) -> bool:
         if not self.visible:
@@ -639,6 +671,8 @@ class TextLayer:
             "path_points": [[x, y] for x, y in self.path_points],
             "path_start_frame": self.path_start_frame,
             "path_end_frame": self.path_end_frame,
+            "stagger_mode": self.stagger_mode,
+            "stagger_frames": self.stagger_frames,
             "keyframes": [kf.to_dict() for kf in self.keyframes],
         }
 
@@ -663,6 +697,10 @@ class TextLayer:
         layer.path_points = _normalize_path_points(d.get("path_points", []))
         layer.path_start_frame = int(d.get("path_start_frame", 0))
         layer.path_end_frame = int(d.get("path_end_frame", -1))
+        layer.stagger_mode = d.get("stagger_mode", "off")
+        if layer.stagger_mode not in {"off", "lines", "words", "letters"}:
+            layer.stagger_mode = "off"
+        layer.stagger_frames = max(1, int(d.get("stagger_frames", 2)))
         layer.accent = LAYER_COLORS[(layer.id - 1) % len(LAYER_COLORS)]
         layer.keyframes = [TextKeyframe.from_dict(k) for k in d.get("keyframes", [{"frame": 0}])]
         return layer
@@ -963,6 +1001,8 @@ class GifCanvas(QWidget):
 
     def _draw_text_layer(self, p, layer, kf, ox, oy, sw, sh, scale, selected, hover, fade_mult):
         text = layer.text.upper() if layer.uppercase else layer.text
+        text = apply_staggered_text(text, layer.stagger_mode, self._current_frame,
+                                    layer.frame_in, layer.stagger_frames)
         if not text:
             return
 
@@ -2000,6 +2040,25 @@ class GifTextApp(QMainWindow):
         self.spin_fade_out.setSuffix(" frames")
         self.spin_fade_out.valueChanged.connect(self._on_timing_changed)
         tmgl.addWidget(self.spin_fade_out, tr, 1)
+        tr += 1
+
+        tmgl.addWidget(QLabel("Reveal:"), tr, 0)
+        self.stagger_combo = QComboBox()
+        self.stagger_combo.addItem("Off", "off")
+        self.stagger_combo.addItem("Lines", "lines")
+        self.stagger_combo.addItem("Words", "words")
+        self.stagger_combo.addItem("Letters", "letters")
+        self.stagger_combo.currentIndexChanged.connect(self._on_timing_changed)
+        tmgl.addWidget(self.stagger_combo, tr, 1)
+        tr += 1
+
+        tmgl.addWidget(QLabel("Step:"), tr, 0)
+        self.spin_stagger_frames = QSpinBox()
+        self.spin_stagger_frames.setRange(1, 60)
+        self.spin_stagger_frames.setSuffix(" frames")
+        self.spin_stagger_frames.setValue(2)
+        self.spin_stagger_frames.valueChanged.connect(self._on_timing_changed)
+        tmgl.addWidget(self.spin_stagger_frames, tr, 1)
         rl.addWidget(tmg)
 
         rl.addStretch()
@@ -2088,7 +2147,7 @@ class GifTextApp(QMainWindow):
             self.btn_color, self.btn_outline_color, self.btn_set_kf, self.btn_del_kf,
             self.btn_copy_kf, self.btn_track_forward, self.spin_path_span,
             self.btn_draw_path, self.btn_clear_path, self.spin_frame_in, self.spin_frame_out,
-            self.spin_fade_in, self.spin_fade_out,
+            self.spin_fade_in, self.spin_fade_out, self.stagger_combo, self.spin_stagger_frames,
         ] + self.effect_buttons:
             widget.setEnabled(enabled)
 
@@ -2251,6 +2310,8 @@ class GifTextApp(QMainWindow):
         layer.path_points = list(src.path_points)
         layer.path_start_frame = src.path_start_frame
         layer.path_end_frame = src.path_end_frame
+        layer.stagger_mode = src.stagger_mode
+        layer.stagger_frames = src.stagger_frames
         layer.keyframes = [kf.copy() for kf in src.keyframes]
         # Offset position slightly
         for kf in layer.keyframes:
@@ -2376,6 +2437,8 @@ class GifTextApp(QMainWindow):
             self.spin_frame_out.setValue(-1)
             self.spin_fade_in.setValue(0)
             self.spin_fade_out.setValue(0)
+            self.stagger_combo.setCurrentIndex(self.stagger_combo.findData("off"))
+            self.spin_stagger_frames.setValue(2)
             self.spin_path_span.setValue(30)
             self.btn_color.setStyleSheet(
                 "background: #ffffff; color: #000; border-radius: 4px; font-weight: 600;"
@@ -2442,6 +2505,9 @@ class GifTextApp(QMainWindow):
         self.spin_frame_out.setValue(layer.frame_out)
         self.spin_fade_in.setValue(layer.fade_in)
         self.spin_fade_out.setValue(layer.fade_out)
+        stagger_idx = self.stagger_combo.findData(layer.stagger_mode)
+        self.stagger_combo.setCurrentIndex(stagger_idx if stagger_idx >= 0 else self.stagger_combo.findData("off"))
+        self.spin_stagger_frames.setValue(layer.stagger_frames)
 
         self._block(False)
 
@@ -2452,7 +2518,7 @@ class GifTextApp(QMainWindow):
                   self.chk_bold, self.chk_italic, self.chk_upper, self.chk_shadow,
                   self.chk_bgbox, self.align_combo, self.spin_frame_in,
                   self.spin_frame_out, self.spin_fade_in, self.spin_fade_out,
-                  self.spin_path_span]:
+                  self.stagger_combo, self.spin_stagger_frames, self.spin_path_span]:
             w.blockSignals(b)
 
     def _on_text_changed(self):
@@ -2513,6 +2579,8 @@ class GifTextApp(QMainWindow):
         self.selected_layer.frame_out = self.spin_frame_out.value()
         self.selected_layer.fade_in = self.spin_fade_in.value()
         self.selected_layer.fade_out = self.spin_fade_out.value()
+        self.selected_layer.stagger_mode = self.stagger_combo.currentData() or "off"
+        self.selected_layer.stagger_frames = self.spin_stagger_frames.value()
         self._schedule_snapshot()
         self._update_all()
 
@@ -3012,6 +3080,8 @@ class GifTextApp(QMainWindow):
     def _render_text_pil(self, frame, layer, frame_idx):
         kf = layer.get_interpolated(frame_idx)
         text = layer.text.upper() if layer.uppercase else layer.text
+        text = apply_staggered_text(text, layer.stagger_mode, frame_idx,
+                                    layer.frame_in, layer.stagger_frames)
         if not text:
             return frame
 

@@ -10,6 +10,7 @@ from GifText import (
     TextKeyframe,
     TextLayer,
     apply_easing_curve,
+    apply_staggered_text,
     build_effect_keyframes,
     build_path_keyframes,
     sample_cubic_path,
@@ -68,6 +69,8 @@ class PathAnimationTests(unittest.TestCase):
         layer.path_points = [(0.1, 0.2), (0.3, 0.4), (0.5, 0.6), (0.7, 0.8)]
         layer.path_start_frame = 2
         layer.path_end_frame = 12
+        layer.stagger_mode = "words"
+        layer.stagger_frames = 3
         layer.keyframes[0].easing = "overshoot"
 
         restored = TextLayer.from_dict(layer.to_dict())
@@ -75,7 +78,22 @@ class PathAnimationTests(unittest.TestCase):
         self.assertEqual(restored.path_points, layer.path_points)
         self.assertEqual(restored.path_start_frame, 2)
         self.assertEqual(restored.path_end_frame, 12)
+        self.assertEqual(restored.stagger_mode, "words")
+        self.assertEqual(restored.stagger_frames, 3)
         self.assertEqual(restored.keyframes[0].easing, "overshoot")
+
+    def test_staggered_text_reveals_lines_words_and_letters(self):
+        text = "Top line\nBottom line"
+        self.assertEqual(apply_staggered_text(text, "lines", 0, 0, 2), "Top line")
+        self.assertEqual(apply_staggered_text(text, "lines", 2, 0, 2), text)
+
+        words = "one two\nthree"
+        self.assertEqual(apply_staggered_text(words, "words", 0, 0, 1), "one")
+        self.assertEqual(apply_staggered_text(words, "words", 1, 0, 1), "one two")
+        self.assertEqual(apply_staggered_text(words, "words", 2, 0, 1), words)
+
+        self.assertEqual(apply_staggered_text("HELLO", "letters", 2, 0, 1), "HEL")
+        self.assertEqual(apply_staggered_text("HELLO", "off", 0, 0, 1), "HELLO")
 
     def test_effect_keyframes_generate_deterministic_emphasis(self):
         layer = TextLayer("effects")
@@ -149,6 +167,18 @@ class PathAnimationAppTests(unittest.TestCase):
         window.ease_combo.setCurrentIndex(idx)
 
         self.assertEqual(layer.get_keyframe_at(0).easing, "ease_out")
+        window.close()
+
+    def test_stagger_controls_update_selected_layer(self):
+        window = GifTextApp()
+        layer = TextLayer("app stagger")
+        window.layers = [layer]
+        window.selected_layer = layer
+        window.stagger_combo.setCurrentIndex(window.stagger_combo.findData("letters"))
+        window.spin_stagger_frames.setValue(4)
+
+        self.assertEqual(layer.stagger_mode, "letters")
+        self.assertEqual(layer.stagger_frames, 4)
         window.close()
 
 
