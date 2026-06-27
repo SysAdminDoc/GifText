@@ -1,6 +1,6 @@
 # GifText
 
-![Version](https://img.shields.io/badge/version-v1.3.0-blue) ![License](https://img.shields.io/badge/license-MIT-green) ![Platform](https://img.shields.io/badge/platform-Python-lightgrey)
+![Version](https://img.shields.io/badge/version-v1.3.1-blue) ![License](https://img.shields.io/badge/license-MIT-green) ![Platform](https://img.shields.io/badge/platform-Python-lightgrey)
 
 Add animated text to GIFs for meme creation. Track text labels on moving subjects with keyframe-based animation and smooth interpolation.
 
@@ -10,6 +10,7 @@ Add animated text to GIFs for meme creation. Track text labels on moving subject
 
 - **Keyframe Animation** - Position, size, opacity, rotation, and color all animatable per-frame with smooth ease-in-out interpolation
 - **OpenCV Motion Tracking** - Generate forward keyframes from the selected layer position with CSRT/KCF when available and optical-flow fallback
+- **Bezier Path Animation** - Draw a four-point path and generate editable position keyframes over a chosen frame span
 - **On-Canvas Editing** - Click to select text, drag to reposition, drag corner handle to resize
 - **Onion Skinning** - Ghost previous frame to track moving subjects
 - **Multiple Text Layers** - Color-coded with individual timing controls
@@ -50,8 +51,9 @@ Dependencies:
 5. **Mousewheel** on canvas to step forward ~10 frames
 6. **Drag** names to follow movement (keyframes auto-created)
 7. Use **Track Forward** to generate motion keyframes when the subject is easy to follow
-8. Repeat until the end - interpolation fills the gaps smoothly
-9. **Export** as GIF, WebP, or PNG sequence
+8. Use **Draw Path** when a label should follow a deliberate arc or swoop
+9. Repeat until the end - interpolation fills the gaps smoothly
+10. **Export** as GIF, WebP, or PNG sequence
 
 ## Controls
 

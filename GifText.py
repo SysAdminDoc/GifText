@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-GifText v1.3.0 - Animated GIF Text Editor
+GifText v1.3.1 - Animated GIF Text Editor
 Full-featured meme text animator with keyframe animation, onion skinning,
 undo/redo, project save/load, drag-resize, text presets, and more.
 """
@@ -46,7 +46,7 @@ from PIL import Image, ImageDraw, ImageFont
 import cv2
 import numpy as np
 
-VERSION = "1.3.0"
+VERSION = "1.3.1"
 
 LAYER_COLORS = [
     "#89b4fa", "#a6e3a1", "#f9e2af", "#f38ba8", "#cba6f7",
@@ -65,6 +65,66 @@ MEME_PRESETS = {
     "Neon": {"font": "Arial", "bold": True, "upper": False, "color": "#89b4fa",
              "outline_color": "#cba6f7", "outline_width": 3, "shadow": True, "size": 40, "bg_box": False},
 }
+
+def _clamp01(value):
+    return max(0.0, min(1.0, float(value)))
+
+
+def _normalize_path_points(points):
+    normalized = []
+    for point in points or []:
+        if isinstance(point, dict):
+            x, y = point.get("x"), point.get("y")
+        else:
+            try:
+                x, y = point[0], point[1]
+            except (TypeError, IndexError):
+                continue
+        try:
+            normalized.append((_clamp01(x), _clamp01(y)))
+        except (TypeError, ValueError):
+            continue
+        if len(normalized) == 4:
+            break
+    return normalized
+
+
+def sample_cubic_path(points, t):
+    path = _normalize_path_points(points)
+    if len(path) != 4:
+        raise ValueError("Path animation requires exactly four Bezier points")
+    t = _clamp01(t)
+    mt = 1.0 - t
+    p0, p1, p2, p3 = path
+    x = (
+        mt * mt * mt * p0[0]
+        + 3.0 * mt * mt * t * p1[0]
+        + 3.0 * mt * t * t * p2[0]
+        + t * t * t * p3[0]
+    )
+    y = (
+        mt * mt * mt * p0[1]
+        + 3.0 * mt * mt * t * p1[1]
+        + 3.0 * mt * t * t * p2[1]
+        + t * t * t * p3[1]
+    )
+    return _clamp01(x), _clamp01(y)
+
+
+def build_path_keyframes(layer, points, start_frame, frame_count):
+    if frame_count < 2:
+        raise ValueError("Path animation needs at least two frames")
+    keyframes = []
+    denom = max(1, frame_count - 1)
+    for offset in range(frame_count):
+        frame = start_frame + offset
+        x, y = sample_cubic_path(points, offset / denom)
+        kf = layer.get_interpolated(frame)
+        kf.frame = frame
+        kf.x = x
+        kf.y = y
+        keyframes.append(kf)
+    return keyframes
 
 DARK_STYLE = """
 QMainWindow, QWidget {
@@ -404,6 +464,9 @@ class TextLayer:
         self.frame_out = -1  # -1 = last frame
         self.fade_in = 0     # frames to fade in
         self.fade_out = 0    # frames to fade out
+        self.path_points = []
+        self.path_start_frame = 0
+        self.path_end_frame = -1
 
     def is_visible_at(self, frame: int, total_frames: int) -> bool:
         if not self.visible:
@@ -494,6 +557,9 @@ class TextLayer:
             "visible": self.visible, "shadow": self.shadow, "uppercase": self.uppercase,
             "bg_box": self.bg_box, "frame_in": self.frame_in, "frame_out": self.frame_out,
             "fade_in": self.fade_in, "fade_out": self.fade_out,
+            "path_points": [[x, y] for x, y in self.path_points],
+            "path_start_frame": self.path_start_frame,
+            "path_end_frame": self.path_end_frame,
             "keyframes": [kf.to_dict() for kf in self.keyframes],
         }
 
@@ -515,6 +581,9 @@ class TextLayer:
         layer.frame_out = d.get("frame_out", -1)
         layer.fade_in = d.get("fade_in", 0)
         layer.fade_out = d.get("fade_out", 0)
+        layer.path_points = _normalize_path_points(d.get("path_points", []))
+        layer.path_start_frame = int(d.get("path_start_frame", 0))
+        layer.path_end_frame = int(d.get("path_end_frame", -1))
         layer.accent = LAYER_COLORS[(layer.id - 1) % len(LAYER_COLORS)]
         layer.keyframes = [TextKeyframe.from_dict(k) for k in d.get("keyframes", [{"frame": 0}])]
         return layer
@@ -579,6 +648,7 @@ class GifCanvas(QWidget):
     canvas_clicked = pyqtSignal(float, float)
     drag_ended = pyqtSignal()          # snapshot undo after drag
     size_changed = pyqtSignal(int)     # font size delta from drag-resize
+    path_finished = pyqtSignal(list)   # four normalized Bezier points
 
     def __init__(self):
         super().__init__()
@@ -608,6 +678,8 @@ class GifCanvas(QWidget):
         self._panning = False
         self._pan_start = QPointF()
         self._pan_offset_start = (0.0, 0.0)
+        self._path_mode = False
+        self._path_points = []
         self.onion_skin = False
         self.onion_opacity = 0.3
 
@@ -618,6 +690,25 @@ class GifCanvas(QWidget):
         self._current_frame = frame
         self._selected_id = selected_id
         self._total_frames = total_frames
+        self._render()
+        self.update()
+
+    def begin_path_capture(self, points=None):
+        self._path_mode = True
+        self._path_points = _normalize_path_points(points)
+        self._dragging = False
+        self._resizing = False
+        self._hovering_id = -1
+        self.setCursor(QCursor(Qt.CursorShape.CrossCursor))
+        self._render()
+        self.update()
+
+    def cancel_path_capture(self):
+        if not self._path_mode:
+            return
+        self._path_mode = False
+        self._path_points = []
+        self.setCursor(QCursor(Qt.CursorShape.ArrowCursor))
         self._render()
         self.update()
 
@@ -734,6 +825,13 @@ class GifCanvas(QWidget):
             fade = layer.get_fade_opacity(self._current_frame, self._total_frames)
             self._draw_text_layer(p, layer, kf, ox, oy, sw, sh, scale, sel, hov, fade)
 
+        selected_layer = next((l for l in self._layers if l.id == self._selected_id), None)
+        if selected_layer and selected_layer.path_points:
+            self._draw_path_overlay(p, selected_layer.path_points, ox, oy, sw, sh,
+                                    selected_layer.accent, active=False)
+        if self._path_mode:
+            self._draw_path_overlay(p, self._path_points, ox, oy, sw, sh, "#f9e2af", active=True)
+
         # Zoom indicator
         if self._zoom != 1.0:
             badge = QRectF(12, ch - 34, 58, 24)
@@ -746,6 +844,43 @@ class GifCanvas(QWidget):
 
         p.end()
         self._rendered = result
+
+    def _draw_path_overlay(self, p, points, ox, oy, sw, sh, color, active=False):
+        points = _normalize_path_points(points)
+        if not points:
+            return
+
+        screen_points = [QPointF(ox + x * sw, oy + y * sh) for x, y in points]
+        accent = QColor(color)
+        p.save()
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        if len(screen_points) >= 2:
+            p.setOpacity(0.62 if active else 0.42)
+            p.setPen(QPen(QColor("#d8dee9"), 1, Qt.PenStyle.DashLine))
+            for i in range(len(screen_points) - 1):
+                p.drawLine(screen_points[i], screen_points[i + 1])
+
+        if len(screen_points) == 4:
+            path = QPainterPath(screen_points[0])
+            path.cubicTo(screen_points[1], screen_points[2], screen_points[3])
+            p.setOpacity(0.95 if active else 0.72)
+            p.setPen(QPen(accent, 3 if active else 2, Qt.PenStyle.SolidLine,
+                          Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+            p.drawPath(path)
+
+        p.setOpacity(1.0)
+        p.setFont(QFont("Segoe UI", 8, QFont.Weight.Bold))
+        for idx, point in enumerate(screen_points):
+            radius = 7 if active else 6
+            p.setPen(QPen(QColor("#0d1117"), 2))
+            p.setBrush(accent if idx in (0, len(screen_points) - 1) else QColor("#0d1117"))
+            p.drawEllipse(point, radius, radius)
+            p.setPen(QColor("#eef2f7") if idx not in (0, len(screen_points) - 1) else QColor("#0d1117"))
+            label = str(idx + 1)
+            p.drawText(QRectF(point.x() - radius, point.y() - radius, radius * 2, radius * 2),
+                       Qt.AlignmentFlag.AlignCenter, label)
+        p.restore()
 
     def _draw_text_layer(self, p, layer, kf, ox, oy, sw, sh, scale, selected, hover, fade_mult):
         text = layer.text.upper() if layer.uppercase else layer.text
@@ -913,6 +1048,20 @@ class GifCanvas(QWidget):
         if event.button() != Qt.MouseButton.LeftButton:
             return
         mx, my = event.pos().x(), event.pos().y()
+        if self._path_mode:
+            rx, ry = self._rel_pos(mx, my)
+            if rx is None:
+                return
+            self._path_points.append((rx, ry))
+            if len(self._path_points) >= 4:
+                points = list(self._path_points[:4])
+                self._path_mode = False
+                self._path_points = []
+                self.setCursor(QCursor(Qt.CursorShape.ArrowCursor))
+                self.path_finished.emit(points)
+            self._render()
+            self.update()
+            return
         # Check resize handle first
         if self._check_resize_handle(mx, my):
             self._resizing = True
@@ -952,6 +1101,10 @@ class GifCanvas(QWidget):
             self.size_changed.emit(new_size)
             return
         rx, ry = self._rel_pos(event.pos().x(), event.pos().y())
+        if self._path_mode:
+            if self.cursor().shape() != Qt.CursorShape.CrossCursor:
+                self.setCursor(QCursor(Qt.CursorShape.CrossCursor))
+            return
         if self._dragging and rx is not None:
             self._did_drag = True
             self.text_moved.emit(rx, ry)
@@ -1228,6 +1381,7 @@ class GifTextApp(QMainWindow):
         self.layers: list[TextLayer] = []
         self.selected_layer: TextLayer | None = None
         self.undo_mgr = UndoManager()
+        self.path_capture_layer_id: int | None = None
 
         self.playing = False
         self.play_speed = 1.0
@@ -1390,6 +1544,7 @@ class GifTextApp(QMainWindow):
         self.canvas.canvas_clicked.connect(self._on_canvas_click)
         self.canvas.drag_ended.connect(self._snapshot)
         self.canvas.size_changed.connect(self._on_canvas_resize)
+        self.canvas.path_finished.connect(self._finish_path_capture)
         canvas_lo.addWidget(self.canvas, 1)
         ll.addWidget(canvas_shell, 1)
 
@@ -1675,6 +1830,29 @@ class GifTextApp(QMainWindow):
         agl.addLayout(track_row, ar, 0, 1, 3)
         ar += 1
 
+        agl.addWidget(QLabel("Path Span:"), ar, 0)
+        self.spin_path_span = QSpinBox()
+        self.spin_path_span.setRange(2, 9999)
+        self.spin_path_span.setValue(30)
+        self.spin_path_span.setSuffix(" frames")
+        agl.addWidget(self.spin_path_span, ar, 1, 1, 2)
+        ar += 1
+
+        path_row = QHBoxLayout()
+        self.btn_draw_path = QPushButton("Draw Path")
+        self.btn_draw_path.setObjectName("keyframeSet")
+        self.btn_draw_path.setFixedHeight(30)
+        self.btn_draw_path.setToolTip("Click four points on the canvas to generate Bezier path keyframes")
+        self.btn_draw_path.clicked.connect(self._toggle_path_capture)
+        path_row.addWidget(self.btn_draw_path)
+        self.btn_clear_path = QPushButton("Clear Path")
+        self.btn_clear_path.setObjectName("keyframeDel")
+        self.btn_clear_path.setFixedHeight(30)
+        self.btn_clear_path.clicked.connect(self._clear_path_guide)
+        path_row.addWidget(self.btn_clear_path)
+        agl.addLayout(path_row, ar, 0, 1, 3)
+        ar += 1
+
         self.kf_info = QLabel("")
         self.kf_info.setStyleSheet("color: #f9e2af; font-size: 11px;")
         self.kf_info.setWordWrap(True)
@@ -1747,6 +1925,11 @@ class GifTextApp(QMainWindow):
             self.btn_play.setText("Play")
         if self.snapshot_timer.isActive():
             self.snapshot_timer.stop()
+        self.path_capture_layer_id = None
+        if hasattr(self, "canvas"):
+            self.canvas.cancel_path_capture()
+        if hasattr(self, "btn_draw_path"):
+            self.btn_draw_path.setText("Draw Path")
         self.layers = []
         self.selected_layer = None
         self.undo_mgr.clear()
@@ -1804,7 +1987,8 @@ class GifTextApp(QMainWindow):
             self.chk_upper, self.chk_shadow, self.chk_bgbox, self.align_combo,
             self.spin_size, self.spin_opacity, self.spin_rotation, self.spin_outline,
             self.btn_color, self.btn_outline_color, self.btn_set_kf, self.btn_del_kf,
-            self.btn_copy_kf, self.btn_track_forward, self.spin_frame_in, self.spin_frame_out,
+            self.btn_copy_kf, self.btn_track_forward, self.spin_path_span,
+            self.btn_draw_path, self.btn_clear_path, self.spin_frame_in, self.spin_frame_out,
             self.spin_fade_in, self.spin_fade_out,
         ]:
             widget.setEnabled(enabled)
@@ -1965,11 +2149,19 @@ class GifTextApp(QMainWindow):
         layer.frame_out = src.frame_out
         layer.fade_in = src.fade_in
         layer.fade_out = src.fade_out
+        layer.path_points = list(src.path_points)
+        layer.path_start_frame = src.path_start_frame
+        layer.path_end_frame = src.path_end_frame
         layer.keyframes = [kf.copy() for kf in src.keyframes]
         # Offset position slightly
         for kf in layer.keyframes:
             kf.x = min(1.0, kf.x + 0.05)
             kf.y = min(1.0, kf.y + 0.05)
+        if layer.path_points:
+            layer.path_points = [
+                (min(1.0, x + 0.05), min(1.0, y + 0.05))
+                for x, y in layer.path_points
+            ]
         self.layers.append(layer)
         self.selected_layer = layer
         self._snapshot()
@@ -1996,6 +2188,8 @@ class GifTextApp(QMainWindow):
         self._update_all()
 
     def _select_layer(self, layer_id):
+        if self.path_capture_layer_id is not None and self.path_capture_layer_id != layer_id:
+            self._cancel_path_capture()
         self.selected_layer = next((l for l in self.layers if l.id == layer_id), None)
         self._rebuild_layer_list()
         self._update_all()
@@ -2082,6 +2276,7 @@ class GifTextApp(QMainWindow):
             self.spin_frame_out.setValue(-1)
             self.spin_fade_in.setValue(0)
             self.spin_fade_out.setValue(0)
+            self.spin_path_span.setValue(30)
             self.btn_color.setStyleSheet(
                 "background: #ffffff; color: #000; border-radius: 4px; font-weight: 600;"
             )
@@ -2124,7 +2319,13 @@ class GifTextApp(QMainWindow):
         existing = layer.get_keyframe_at(self.current_frame)
         kf_frames = sorted(k.frame + 1 for k in layer.keyframes)
         marker = "[KEYFRAME]" if existing else "[interpolated]"
-        self.kf_info.setText(f"{marker}  KFs: {', '.join(map(str, kf_frames))}")
+        path_text = ""
+        if layer.path_points and layer.path_end_frame >= layer.path_start_frame:
+            path_text = f" | Path: {layer.path_start_frame + 1}-{layer.path_end_frame + 1}"
+            span = max(2, layer.path_end_frame - layer.path_start_frame + 1)
+            self.spin_path_span.setValue(span)
+        self.kf_info.setText(f"{marker}  KFs: {', '.join(map(str, kf_frames))}{path_text}")
+        self.btn_clear_path.setEnabled(bool(layer.path_points))
         self.selection_name.setText(layer.text.split('\n')[0][:28] or f"Layer {layer.id}")
         self.selection_meta.setText(
             f"Frame {self.current_frame + 1} of {self.total_frames} | "
@@ -2147,7 +2348,8 @@ class GifTextApp(QMainWindow):
                   self.spin_rotation, self.spin_outline, self.font_combo,
                   self.chk_bold, self.chk_italic, self.chk_upper, self.chk_shadow,
                   self.chk_bgbox, self.align_combo, self.spin_frame_in,
-                  self.spin_frame_out, self.spin_fade_in, self.spin_fade_out]:
+                  self.spin_frame_out, self.spin_fade_in, self.spin_fade_out,
+                  self.spin_path_span]:
             w.blockSignals(b)
 
     def _on_text_changed(self):
@@ -2288,6 +2490,66 @@ class GifTextApp(QMainWindow):
         self.statusBar().showMessage(
             f"Copied keyframe to {count} frames ({self.current_frame + 1}-{min(self.current_frame + 10, self.total_frames)})"
         )
+
+    def _toggle_path_capture(self):
+        if self.path_capture_layer_id is not None:
+            self._cancel_path_capture()
+            self.statusBar().showMessage("Path drawing cancelled")
+            return
+        if not self.selected_layer or not self.gif_frames:
+            return
+        if self.current_frame >= self.total_frames - 1:
+            self.statusBar().showMessage("Path animation needs at least one later frame")
+            return
+
+        self.path_capture_layer_id = self.selected_layer.id
+        self.btn_draw_path.setText("Cancel Path")
+        self.canvas.begin_path_capture()
+        self.statusBar().showMessage("Path mode: click start, control 1, control 2, end")
+
+    def _cancel_path_capture(self):
+        self.path_capture_layer_id = None
+        self.btn_draw_path.setText("Draw Path")
+        self.canvas.cancel_path_capture()
+
+    def _finish_path_capture(self, points):
+        layer = next((l for l in self.layers if l.id == self.path_capture_layer_id), None)
+        self.path_capture_layer_id = None
+        self.btn_draw_path.setText("Draw Path")
+        points = _normalize_path_points(points)
+        if not layer or len(points) != 4:
+            self.canvas.cancel_path_capture()
+            self.statusBar().showMessage("Path drawing did not produce four valid points")
+            return
+
+        frame_count = min(self.spin_path_span.value(), self.total_frames - self.current_frame)
+        if frame_count < 2:
+            self.statusBar().showMessage("Path animation needs at least two frames")
+            return
+
+        layer.path_points = points
+        layer.path_start_frame = self.current_frame
+        layer.path_end_frame = self.current_frame + frame_count - 1
+        for kf in build_path_keyframes(layer, points, self.current_frame, frame_count):
+            layer.set_keyframe(kf)
+
+        self._snapshot()
+        self._update_all()
+        self.statusBar().showMessage(
+            f"Path generated {frame_count} keyframes through frame {layer.path_end_frame + 1}"
+        )
+
+    def _clear_path_guide(self):
+        if self.path_capture_layer_id is not None:
+            self._cancel_path_capture()
+        if not self.selected_layer or not self.selected_layer.path_points:
+            return
+        self.selected_layer.path_points = []
+        self.selected_layer.path_start_frame = 0
+        self.selected_layer.path_end_frame = -1
+        self._snapshot()
+        self._update_all()
+        self.statusBar().showMessage("Path guide cleared; generated keyframes remain editable")
 
     def _track_selected_layer_forward(self):
         if not self.selected_layer or not self.gif_pil_frames:
