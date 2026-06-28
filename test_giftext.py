@@ -11,6 +11,8 @@ from GifText import (
     ExportWorker,
     GifTextApp,
     LoadGifWorker,
+    PROJECT_SCHEMA_VERSION,
+    ProjectValidationError,
     TextKeyframe,
     TextLayer,
     apply_easing_curve,
@@ -19,6 +21,7 @@ from GifText import (
     build_path_keyframes,
     render_text_pil,
     sample_cubic_path,
+    validate_project_payload,
 )
 from PIL import Image
 from PyQt6.QtGui import QPixmap
@@ -171,6 +174,70 @@ class DiagnosticsTests(unittest.TestCase):
             self.assertIn("out.gif", window.diagnostics_view.toPlainText())
             self.assertIn("write denied", window.statusBar().currentMessage())
             self.assertTrue(window.diagnostics.log_path.exists())
+            window.close()
+
+
+class ProjectValidationTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QApplication.instance() or QApplication([])
+
+    def _valid_project(self):
+        layer = TextLayer("valid")
+        layer.frame_out = 1
+        layer.keyframes = [
+            TextKeyframe(frame=0, x=0.25, y=0.5, opacity=1.0),
+            TextKeyframe(frame=1, x=0.75, y=0.5, opacity=0.6),
+        ]
+        return {
+            "schema_version": PROJECT_SCHEMA_VERSION,
+            "version": "1.3.8",
+            "gif_path": "clip.gif",
+            "gif_relpath": "clip.gif",
+            "layers": [layer.to_dict()],
+        }
+
+    def test_project_schema_accepts_current_valid_payload(self):
+        validate_project_payload(self._valid_project(), total_frames=2)
+
+    def test_project_schema_rejects_future_version(self):
+        project = self._valid_project()
+        project["schema_version"] = PROJECT_SCHEMA_VERSION + 1
+
+        with self.assertRaisesRegex(ProjectValidationError, "newer"):
+            validate_project_payload(project, total_frames=2)
+
+    def test_project_schema_rejects_invalid_keyframe_bounds(self):
+        project = self._valid_project()
+        project["layers"][0]["keyframes"][0]["opacity"] = 1.5
+
+        with self.assertRaisesRegex(ProjectValidationError, "opacity"):
+            validate_project_payload(project, total_frames=2)
+
+    def test_invalid_project_does_not_mutate_current_document(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            window = GifTextApp()
+            existing = TextLayer("current")
+            window.layers = [existing]
+            window.gif_path = "current.gif"
+            window.diagnostics = DiagnosticsRecorder(tmp)
+            project = self._valid_project()
+            project["layers"][0]["frame_out"] = 99
+            window.pending_project_payload = project
+            data = {
+                "path": "bad-project.gif",
+                "width": 8,
+                "height": 8,
+                "pil_frames": [Image.new("RGBA", (8, 8)), Image.new("RGBA", (8, 8))],
+                "frame_bytes": [b"", b""],
+                "durations": [40, 40],
+            }
+
+            window._on_gif_loaded(data)
+
+            self.assertEqual(window.layers, [existing])
+            self.assertEqual(window.gif_path, "current.gif")
+            self.assertIn("frame_out", window.diagnostics_view.toPlainText())
             window.close()
 
 

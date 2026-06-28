@@ -89,13 +89,6 @@ else handles cleanly on desktop.
 
 ## Research-Driven Additions
 
-- [ ] P0 - Version and validate `.giftext` project schema before applying state
-  Why: Project files accept broad unvalidated JSON and have no migration path beyond the app version string.
-  Evidence: `GifText.py:672`, `GifText.py:688`, `GifText.py:3017`; Rekapi actor/keyframe model; Web Animations keyframe format.
-  Touches: `GifText.py`, project I/O module, `test_giftext.py`
-  Acceptance: Project load validates schema version, paths, frame ranges, colors, opacity bounds, keyframe fields, and reports actionable errors without mutating the current document on failure.
-  Complexity: M
-
 - [ ] P0 - Add export and project round-trip regression tests with tiny generated GIF fixtures
   Why: Tests cover helper logic but not the workflows most likely to corrupt user output.
   Evidence: `test_giftext.py`; Pillow GIF save behavior; GifText export code in `GifText.py:3090`.

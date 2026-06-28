@@ -1,6 +1,6 @@
 # GifText
 
-![Version](https://img.shields.io/badge/version-v1.3.7-blue) ![License](https://img.shields.io/badge/license-MIT-green) ![Platform](https://img.shields.io/badge/platform-Python-lightgrey)
+![Version](https://img.shields.io/badge/version-v1.3.8-blue) ![License](https://img.shields.io/badge/license-MIT-green) ![Platform](https://img.shields.io/badge/platform-Python-lightgrey)
 
 Add animated text to GIFs for meme creation. Track text labels on moving subjects with keyframe-based animation and smooth interpolation.
 
@@ -26,6 +26,7 @@ Add animated text to GIFs for meme creation. Track text labels on moving subject
 - **Background Box** - Semi-transparent subtitle-style background
 - **Undo/Redo** - Full 50-level undo history (Ctrl+Z / Ctrl+Y)
 - **Project Save/Load** - Resume work later with `.giftext` project files
+- **Versioned Project Schema** - Project loads validate schema, paths, frame ranges, colors, opacity, and keyframe fields before applying state
 - **Multi-Format Export** - GIF, WebP (with alpha), PNG sequence
 - **Zoom & Pan** - Ctrl+wheel to zoom, middle-click to pan
 - **Drag & Drop** - Drop GIF files directly onto the canvas
@@ -93,7 +94,7 @@ The executable is written to `dist\GifText.exe`.
 
 ## Troubleshooting
 
-Failures are shown in the status bar, written to the right-side Diagnostics panel, and appended to timestamped logs under `%USERPROFILE%\.giftext\logs\`.
+Failures are shown in the status bar, written to the right-side Diagnostics panel, and appended to timestamped logs under `%USERPROFILE%\.giftext\logs\`. Project files are validated before loading so invalid `.giftext` files do not replace the current document.
 
 ## License
 
