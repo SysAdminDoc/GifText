@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-GifText v1.4.1 - Animated GIF Text Editor
+GifText v1.4.2 - Animated GIF Text Editor
 Full-featured meme text animator with keyframe animation, onion skinning,
 undo/redo, project save/load, drag-resize, text presets, and more.
 """
@@ -49,7 +49,7 @@ from PIL import Image, ImageDraw, ImageFont
 import cv2
 import numpy as np
 
-VERSION = "1.4.1"
+VERSION = "1.4.2"
 PROJECT_SCHEMA_VERSION = 2
 
 LAYER_COLORS = [
@@ -69,6 +69,20 @@ MEME_PRESETS = {
     "Neon": {"font": "Arial", "bold": True, "upper": False, "color": "#89b4fa",
              "outline_color": "#cba6f7", "outline_width": 3, "shadow": True, "size": 40, "bg_box": False},
 }
+
+UNICODE_FALLBACK_FONTS = [
+    "segoeui.ttf",
+    "seguisym.ttf",
+    "seguiemj.ttf",
+    "arialuni.ttf",
+    "nirmala.ttf",
+    "malgun.ttf",
+    "meiryo.ttc",
+    "msgothic.ttc",
+    "msyh.ttc",
+    "simsun.ttc",
+    "arial.ttf",
+]
 
 EASING_CURVES = {
     "linear": ("Linear", (0.0, 0.0, 1.0, 1.0)),
@@ -1030,7 +1044,7 @@ class UndoManager:
 #  Render / Worker Helpers
 # ============================================================================
 
-def get_pil_font(layer, size):
+def get_pil_font(layer, size, sample_text=""):
     family = layer.font_family.lower().replace(' ', '')
     candidates = []
     if layer.bold and layer.italic:
@@ -1041,6 +1055,8 @@ def get_pil_font(layer, size):
         candidates.append(f"{family}i.ttf")
     candidates.append(f"{family}.ttf")
     candidates += ["impact.ttf", "arialbd.ttf", "arial.ttf"]
+    if any(ord(char) > 127 for char in sample_text or ""):
+        candidates = candidates + [name for name in UNICODE_FALLBACK_FONTS if name not in candidates]
     for name in candidates:
         try:
             return ImageFont.truetype(f"C:/Windows/Fonts/{name}", size)
@@ -1064,7 +1080,7 @@ def render_text_pil(frame, layer, frame_idx, total_frames):
 
     overlay = Image.new("RGBA", frame.size, (0, 0, 0, 0))
     draw = ImageDraw.Draw(overlay)
-    font = get_pil_font(layer, kf.font_size)
+    font = get_pil_font(layer, kf.font_size, text)
 
     lines = text.split('\n')
     line_sizes = []
@@ -4046,7 +4062,7 @@ class GifTextApp(QMainWindow):
         return render_text_pil(frame, layer, frame_idx, self.total_frames)
 
     def _get_pil_font(self, layer, size):
-        return get_pil_font(layer, size)
+        return get_pil_font(layer, size, layer.text)
 
 
 # ============================================================================

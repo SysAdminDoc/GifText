@@ -1,6 +1,6 @@
 # GifText
 
-![Version](https://img.shields.io/badge/version-v1.4.1-blue) ![License](https://img.shields.io/badge/license-MIT-green) ![Platform](https://img.shields.io/badge/platform-Python-lightgrey)
+![Version](https://img.shields.io/badge/version-v1.4.2-blue) ![License](https://img.shields.io/badge/license-MIT-green) ![Platform](https://img.shields.io/badge/platform-Python-lightgrey)
 
 Add animated text to GIFs for meme creation. Track text labels on moving subjects with keyframe-based animation and smooth interpolation.
 
@@ -15,6 +15,7 @@ Add animated text to GIFs for meme creation. Track text labels on moving subject
 - **Easing Curve Picker** - Choose per-keyframe cubic Bezier timing curves for interpolation
 - **Staggered Text Reveal** - Reveal lines, words, or letters over time for animated captions
 - **Subtitle Import** - Import SRT/VTT captions as timed editable text layers
+- **Unicode Export Fallbacks** - Non-Latin captions use broader Windows font fallbacks during export rendering
 - **Separate Stroke & Shadow Styling** - Tune stroke opacity plus shadow color/opacity independently
 - **Responsive Long Jobs** - GIF loading, tracking, and export run in cancellable background workers
 - **Structured Diagnostics** - Load, project, recent-file, tracking, and export failures write timestamped logs and appear in the in-app Diagnostics panel

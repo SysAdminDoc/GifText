@@ -89,13 +89,6 @@ else handles cleanly on desktop.
 
 ## Research-Driven Additions
 
-- [ ] P1 - Add Unicode font fallback and script coverage for preview/export parity
-  Why: Ezgif advertises full Unicode plus Arabic, Korean, Hebrew, Thai, Tamil, Telugu, and Devanagari fonts; GifText export currently probes Windows font filenames directly.
-  Evidence: Ezgif font coverage; `GifText.py:3222`.
-  Touches: `GifText.py`, font resolver module, `test_giftext.py`, README
-  Acceptance: Non-Latin sample captions render in preview and export with matching glyph coverage or a clear missing-font warning.
-  Complexity: M
-
 - [ ] P1 - Add video input import for short clips while preserving the GIF-labeling workflow
   Why: GIPHY, Kapwing, Gifcurry, and ScreenToGif all accept video sources; GifText currently starts only from animated GIF files.
   Evidence: GIPHY GIF Maker video/YouTube intake; Kapwing GIF maker; Gifcurry video-to-GIF workflow.

@@ -21,6 +21,7 @@ from GifText import (
     build_project_payload,
     build_effect_keyframes,
     build_path_keyframes,
+    get_pil_font,
     render_text_pil,
     sample_cubic_path,
     parse_subtitle_text,
@@ -581,6 +582,18 @@ class WorkerTests(unittest.TestCase):
 
         self.assertIsNot(rendered, frame)
         self.assertGreater(rendered.getbbox()[2], 0)
+
+    def test_unicode_text_uses_export_font_fallback(self):
+        frame = Image.new("RGBA", (220, 80), (0, 0, 0, 0))
+        layer = TextLayer("مرحبا 안녕 नमस्ते")
+        layer.uppercase = False
+        layer.keyframes[0].font_size = 28
+
+        font = get_pil_font(layer, 28, layer.text)
+        rendered = render_text_pil(frame, layer, 0, 1)
+
+        self.assertIsNotNone(font)
+        self.assertIsNotNone(rendered.getbbox())
 
 
 if __name__ == "__main__":
