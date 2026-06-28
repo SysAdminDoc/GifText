@@ -89,13 +89,6 @@ else handles cleanly on desktop.
 
 ## Research-Driven Additions
 
-- [ ] P0 - Add export and project round-trip regression tests with tiny generated GIF fixtures
-  Why: Tests cover helper logic but not the workflows most likely to corrupt user output.
-  Evidence: `test_giftext.py`; Pillow GIF save behavior; GifText export code in `GifText.py:3090`.
-  Touches: `test_giftext.py`, export/project helpers after extraction
-  Acceptance: Tests verify GIF/WebP/PNG sequence frame count, duration preservation, text rendering on multiple frames, project save/load parity, and corrupt project rejection.
-  Complexity: M
-
 - [ ] P1 - Import SRT/VTT subtitle tracks as timed text layers
   Why: Gifcurry and commercial editors treat subtitle import as a core caption workflow, while GifText already has layer timing and text reveal primitives.
   Evidence: Gifcurry subtitle import; VEED subtitle workflow; `TextLayer.frame_in/frame_out` in `GifText.py:576`.

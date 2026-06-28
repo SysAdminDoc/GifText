@@ -17,6 +17,7 @@ from GifText import (
     TextLayer,
     apply_easing_curve,
     apply_staggered_text,
+    build_project_payload,
     build_effect_keyframes,
     build_path_keyframes,
     render_text_pil,
@@ -191,7 +192,7 @@ class ProjectValidationTests(unittest.TestCase):
         ]
         return {
             "schema_version": PROJECT_SCHEMA_VERSION,
-            "version": "1.3.8",
+            "version": "1.3.9",
             "gif_path": "clip.gif",
             "gif_relpath": "clip.gif",
             "layers": [layer.to_dict()],
@@ -321,6 +322,21 @@ class PathAnimationAppTests(unittest.TestCase):
 
 
 class WorkerTests(unittest.TestCase):
+    def _text_layer(self):
+        layer = TextLayer("Hi")
+        layer.uppercase = False
+        layer.keyframes[0].x = 0.5
+        layer.keyframes[0].y = 0.5
+        layer.keyframes[0].font_size = 24
+        layer.keyframes[0].color = "#ffffff"
+        layer.keyframes[0].outline_width = 0
+        layer.shadow = False
+        return layer
+
+    def _has_rendered_text(self, image):
+        frame = image.convert("RGB")
+        return any(r > 180 and g > 180 and b > 180 for r, g, b in frame.getdata())
+
     def test_load_worker_decodes_generated_gif(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = os.path.join(tmp, "tiny.gif")
@@ -362,6 +378,85 @@ class WorkerTests(unittest.TestCase):
             self.assertTrue(os.path.exists(output))
             self.assertEqual(results, [output])
             self.assertEqual(TextLayer._counter, before_counter)
+
+    def test_export_worker_preserves_gif_frames_duration_and_text(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            output = os.path.join(tmp, "out.gif")
+            frames = [
+                Image.new("RGBA", (80, 48), (0, 0, 0, 255)),
+                Image.new("RGBA", (80, 48), (4, 0, 0, 255)),
+            ]
+            worker = ExportWorker(frames, [self._text_layer().to_dict()], [40, 80], 2, output, ".gif")
+            failures = []
+            worker.failed.connect(failures.append)
+
+            worker.run()
+
+            self.assertEqual(failures, [])
+            with Image.open(output) as exported:
+                self.assertEqual(exported.n_frames, 2)
+                durations = []
+                rendered = []
+                for frame_index in range(exported.n_frames):
+                    exported.seek(frame_index)
+                    durations.append(exported.info.get("duration"))
+                    rendered.append(self._has_rendered_text(exported))
+                self.assertEqual(durations, [40, 80])
+                self.assertEqual(rendered, [True, True])
+
+    def test_export_worker_writes_webp_and_png_sequence_frames(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            frames = [
+                Image.new("RGBA", (80, 48), (0, 0, 0, 255)),
+                Image.new("RGBA", (80, 48), (4, 0, 0, 255)),
+            ]
+            layer_payload = [self._text_layer().to_dict()]
+            webp_output = os.path.join(tmp, "out.webp")
+            png_output = os.path.join(tmp, "seq.png")
+
+            webp_worker = ExportWorker(frames, layer_payload, [50, 70], 2, webp_output, ".webp")
+            png_worker = ExportWorker(frames, layer_payload, [50, 70], 2, png_output, ".png")
+            failures = []
+            webp_worker.failed.connect(failures.append)
+            png_worker.failed.connect(failures.append)
+
+            webp_worker.run()
+            png_worker.run()
+
+            self.assertEqual(failures, [])
+            with Image.open(webp_output) as exported_webp:
+                self.assertEqual(exported_webp.n_frames, 2)
+            first_png = os.path.join(tmp, "seq_0000.png")
+            second_png = os.path.join(tmp, "seq_0001.png")
+            self.assertTrue(os.path.exists(first_png))
+            self.assertTrue(os.path.exists(second_png))
+            with Image.open(first_png) as first, Image.open(second_png) as second:
+                self.assertTrue(self._has_rendered_text(first))
+                self.assertTrue(self._has_rendered_text(second))
+
+    def test_project_payload_round_trips_layer_state(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            gif_path = os.path.join(tmp, "clip.gif")
+            project_path = os.path.join(tmp, "clip.giftext")
+            layer = self._text_layer()
+            layer.frame_out = 1
+            layer.stagger_mode = "letters"
+            layer.stagger_frames = 2
+
+            payload = build_project_payload(gif_path, [layer], project_path)
+            validate_project_payload(payload, total_frames=2)
+            restored = TextLayer.from_dict(payload["layers"][0])
+
+            self.assertEqual(payload["schema_version"], PROJECT_SCHEMA_VERSION)
+            self.assertEqual(payload["gif_relpath"], "clip.gif")
+            self.assertEqual(restored.text, layer.text)
+            self.assertEqual(restored.frame_out, 1)
+            self.assertEqual(restored.stagger_mode, "letters")
+            self.assertEqual(restored.keyframes[0].font_size, 24)
+
+    def test_corrupt_project_payload_is_rejected(self):
+        with self.assertRaisesRegex(ProjectValidationError, "layers"):
+            validate_project_payload({"schema_version": PROJECT_SCHEMA_VERSION, "layers": "bad"}, total_frames=2)
 
     def test_shared_renderer_draws_text(self):
         frame = Image.new("RGBA", (64, 48), (0, 0, 0, 0))

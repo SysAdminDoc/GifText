@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-GifText v1.3.8 - Animated GIF Text Editor
+GifText v1.3.9 - Animated GIF Text Editor
 Full-featured meme text animator with keyframe animation, onion skinning,
 undo/redo, project save/load, drag-resize, text presets, and more.
 """
@@ -49,7 +49,7 @@ from PIL import Image, ImageDraw, ImageFont
 import cv2
 import numpy as np
 
-VERSION = "1.3.8"
+VERSION = "1.3.9"
 PROJECT_SCHEMA_VERSION = 2
 
 LAYER_COLORS = [
@@ -885,6 +885,22 @@ def validate_project_payload(project, total_frames=None):
                     _validate_color_value(keyframe[field], f"{klabel}.{field}")
             if "easing" in keyframe and keyframe["easing"] not in EASING_CURVES:
                 raise ProjectValidationError(f"{klabel}.easing is invalid")
+
+
+def build_project_payload(gif_path, layers, project_path=None):
+    rel_path = None
+    if project_path:
+        try:
+            rel_path = os.path.relpath(gif_path, os.path.dirname(project_path))
+        except ValueError:
+            rel_path = None
+    return {
+        "schema_version": PROJECT_SCHEMA_VERSION,
+        "version": VERSION,
+        "gif_path": gif_path,
+        "gif_relpath": rel_path,
+        "layers": [layer.to_dict() for layer in layers],
+    }
 
 
 # ============================================================================
@@ -3689,17 +3705,7 @@ class GifTextApp(QMainWindow):
         )
         if not path:
             return
-        try:
-            rel_path = os.path.relpath(self.gif_path, os.path.dirname(path))
-        except ValueError:
-            rel_path = None
-        project = {
-            "schema_version": PROJECT_SCHEMA_VERSION,
-            "version": VERSION,
-            "gif_path": self.gif_path,
-            "gif_relpath": rel_path,
-            "layers": [l.to_dict() for l in self.layers],
-        }
+        project = build_project_payload(self.gif_path, self.layers, path)
         try:
             with open(path, 'w', encoding='utf-8') as f:
                 json.dump(project, f, indent=2, ensure_ascii=False)
