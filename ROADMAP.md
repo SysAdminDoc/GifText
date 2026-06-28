@@ -89,13 +89,6 @@ else handles cleanly on desktop.
 
 ## Research-Driven Additions
 
-- [ ] P1 - Add range-based keyframe and text-annotation operations
-  Why: Ezgif supports per-text frame ranges and ScreenToGif users value changing timing across frame ranges; GifText only has manual keyframes and a fixed "Repeat 10 Frames" action.
-  Evidence: Ezgif frame-range annotations; ScreenToGif timing/range editing; `GifText.py:2714`.
-  Touches: `GifText.py`, `LayerTimeline`, `TextLayer`, `test_giftext.py`
-  Acceptance: Users can choose a frame range, apply/copy/delete selected layer keyframes in that range, and set text visibility timing from the range selection.
-  Complexity: M
-
 - [ ] P1 - Add Unicode font fallback and script coverage for preview/export parity
   Why: Ezgif advertises full Unicode plus Arabic, Korean, Hebrew, Thai, Tamil, Telugu, and Devanagari fonts; GifText export currently probes Windows font filenames directly.
   Evidence: Ezgif font coverage; `GifText.py:3222`.

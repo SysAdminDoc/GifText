@@ -15,6 +15,7 @@ from GifText import (
     ProjectValidationError,
     TextKeyframe,
     TextLayer,
+    VERSION,
     apply_easing_curve,
     apply_staggered_text,
     build_project_payload,
@@ -194,7 +195,7 @@ class ProjectValidationTests(unittest.TestCase):
         ]
         return {
             "schema_version": PROJECT_SCHEMA_VERSION,
-            "version": "1.4.0",
+            "version": VERSION,
             "gif_path": "clip.gif",
             "gif_relpath": "clip.gif",
             "layers": [layer.to_dict()],
@@ -378,6 +379,60 @@ class PathAnimationAppTests(unittest.TestCase):
 
         self.assertAlmostEqual(layer.get_keyframe_at(0).outline_opacity, 0.45)
         self.assertAlmostEqual(layer.get_keyframe_at(0).shadow_opacity, 0.25)
+        window.close()
+
+    def test_range_apply_delete_and_visibility_tools(self):
+        window = GifTextApp()
+        layer = TextLayer("range tools")
+        window.layers = [layer]
+        window.selected_layer = layer
+        window.total_frames = 6
+        window.current_frame = 0
+        layer.keyframes[0].font_size = 42
+        window.spin_range_start.setValue(1)
+        window.spin_range_end.setValue(3)
+
+        window._apply_current_keyframe_to_range()
+
+        self.assertEqual([kf.frame for kf in sorted(layer.keyframes, key=lambda k: k.frame)], [0, 1, 2, 3])
+        self.assertEqual(layer.get_keyframe_at(2).font_size, 42)
+
+        window.spin_range_start.setValue(1)
+        window.spin_range_end.setValue(2)
+        window._delete_keyframe_range()
+
+        self.assertIsNone(layer.get_keyframe_at(1))
+        self.assertIsNone(layer.get_keyframe_at(2))
+        self.assertIsNotNone(layer.get_keyframe_at(3))
+
+        window.spin_range_start.setValue(2)
+        window.spin_range_end.setValue(4)
+        window._set_visibility_to_range()
+
+        self.assertEqual((layer.frame_in, layer.frame_out), (2, 4))
+        window.close()
+
+    def test_range_copy_and_paste_tools_preserve_offsets(self):
+        window = GifTextApp()
+        layer = TextLayer("copy range")
+        layer.keyframes = [
+            TextKeyframe(frame=1, x=0.2, font_size=20),
+            TextKeyframe(frame=3, x=0.6, font_size=36),
+        ]
+        window.layers = [layer]
+        window.selected_layer = layer
+        window.total_frames = 8
+        window.spin_range_start.setValue(1)
+        window.spin_range_end.setValue(3)
+
+        window._copy_keyframes_in_range()
+        window.spin_range_start.setValue(4)
+        window.spin_range_end.setValue(6)
+        window._paste_keyframe_range()
+
+        self.assertEqual(layer.get_keyframe_at(4).font_size, 20)
+        self.assertEqual(layer.get_keyframe_at(6).font_size, 36)
+        self.assertAlmostEqual(layer.get_keyframe_at(6).x, 0.6)
         window.close()
 
 

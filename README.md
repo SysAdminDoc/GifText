@@ -1,6 +1,6 @@
 # GifText
 
-![Version](https://img.shields.io/badge/version-v1.4.0-blue) ![License](https://img.shields.io/badge/license-MIT-green) ![Platform](https://img.shields.io/badge/platform-Python-lightgrey)
+![Version](https://img.shields.io/badge/version-v1.4.1-blue) ![License](https://img.shields.io/badge/license-MIT-green) ![Platform](https://img.shields.io/badge/platform-Python-lightgrey)
 
 Add animated text to GIFs for meme creation. Track text labels on moving subjects with keyframe-based animation and smooth interpolation.
 
@@ -22,6 +22,7 @@ Add animated text to GIFs for meme creation. Track text labels on moving subject
 - **Onion Skinning** - Ghost previous frame to track moving subjects
 - **Multiple Text Layers** - Color-coded with individual timing controls
 - **Layer Timeline** - Visual bars with keyframe diamonds and playhead
+- **Range Tools** - Apply, copy, paste, delete, and visibility-limit keyframes across selected frame ranges
 - **Fade In/Out** - Per-layer entry and exit animations
 - **Meme Presets** - Classic Meme, Modern Clean, Subtitle, Bold Impact, Neon
 - **Background Box** - Semi-transparent subtitle-style background

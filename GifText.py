@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-GifText v1.4.0 - Animated GIF Text Editor
+GifText v1.4.1 - Animated GIF Text Editor
 Full-featured meme text animator with keyframe animation, onion skinning,
 undo/redo, project save/load, drag-resize, text presets, and more.
 """
@@ -49,7 +49,7 @@ from PIL import Image, ImageDraw, ImageFont
 import cv2
 import numpy as np
 
-VERSION = "1.4.0"
+VERSION = "1.4.1"
 PROJECT_SCHEMA_VERSION = 2
 
 LAYER_COLORS = [
@@ -2150,6 +2150,7 @@ class GifTextApp(QMainWindow):
         self.pending_tracking_layer_id = None
         self.diagnostics = DiagnosticsRecorder()
         self.diagnostic_lines: list[str] = []
+        self.copied_keyframe_range: list[tuple[int, dict]] = []
 
         self.playing = False
         self.play_speed = 1.0
@@ -2630,7 +2631,7 @@ class GifTextApp(QMainWindow):
         kf_row.addWidget(self.btn_del_kf)
         self.btn_copy_kf = QPushButton("Repeat 10 Frames")
         self.btn_copy_kf.setFixedHeight(30)
-        self.btn_copy_kf.clicked.connect(self._copy_keyframe_range)
+        self.btn_copy_kf.clicked.connect(self._repeat_keyframe_10_frames)
         kf_row.addWidget(self.btn_copy_kf)
         agl.addLayout(kf_row, ar, 0, 1, 3)
         ar += 1
@@ -2748,6 +2749,45 @@ class GifTextApp(QMainWindow):
         self.spin_stagger_frames.valueChanged.connect(self._on_timing_changed)
         tmgl.addWidget(self.spin_stagger_frames, tr, 1)
         rl.addWidget(tmg)
+
+        range_group = QGroupBox("Range Tools")
+        range_layout = QGridLayout(range_group)
+        range_layout.setContentsMargins(10, 10, 10, 10)
+        range_layout.setSpacing(8)
+        range_layout.addWidget(QLabel("Start:"), 0, 0)
+        self.spin_range_start = QSpinBox()
+        self.spin_range_start.setRange(0, 9999)
+        range_layout.addWidget(self.spin_range_start, 0, 1)
+        range_layout.addWidget(QLabel("End:"), 1, 0)
+        self.spin_range_end = QSpinBox()
+        self.spin_range_end.setRange(0, 9999)
+        range_layout.addWidget(self.spin_range_end, 1, 1)
+
+        self.btn_apply_range = QPushButton("Apply Current")
+        self.btn_apply_range.setObjectName("ghost")
+        self.btn_apply_range.clicked.connect(self._apply_current_keyframe_to_range)
+        range_layout.addWidget(self.btn_apply_range, 2, 0, 1, 2)
+
+        self.btn_copy_range = QPushButton("Copy Keys")
+        self.btn_copy_range.setObjectName("ghost")
+        self.btn_copy_range.clicked.connect(self._copy_keyframes_in_range)
+        range_layout.addWidget(self.btn_copy_range, 3, 0)
+
+        self.btn_paste_range = QPushButton("Paste Keys")
+        self.btn_paste_range.setObjectName("ghost")
+        self.btn_paste_range.clicked.connect(self._paste_keyframe_range)
+        range_layout.addWidget(self.btn_paste_range, 3, 1)
+
+        self.btn_delete_range = QPushButton("Delete Keys")
+        self.btn_delete_range.setObjectName("danger")
+        self.btn_delete_range.clicked.connect(self._delete_keyframe_range)
+        range_layout.addWidget(self.btn_delete_range, 4, 0)
+
+        self.btn_visible_range = QPushButton("Set Visible")
+        self.btn_visible_range.setObjectName("ghost")
+        self.btn_visible_range.clicked.connect(self._set_visibility_to_range)
+        range_layout.addWidget(self.btn_visible_range, 4, 1)
+        rl.addWidget(range_group)
 
         diag_group = QGroupBox("Diagnostics")
         diag_layout = QVBoxLayout(diag_group)
@@ -2881,6 +2921,8 @@ class GifTextApp(QMainWindow):
             self.btn_copy_kf, self.btn_track_forward, self.spin_path_span,
             self.btn_draw_path, self.btn_clear_path, self.spin_frame_in, self.spin_frame_out,
             self.spin_fade_in, self.spin_fade_out, self.stagger_combo, self.spin_stagger_frames,
+            self.spin_range_start, self.spin_range_end, self.btn_apply_range, self.btn_copy_range,
+            self.btn_paste_range, self.btn_delete_range, self.btn_visible_range,
         ] + self.effect_buttons:
             widget.setEnabled(enabled)
 
@@ -3243,6 +3285,8 @@ class GifTextApp(QMainWindow):
             self.stagger_combo.setCurrentIndex(self.stagger_combo.findData("off"))
             self.spin_stagger_frames.setValue(2)
             self.spin_path_span.setValue(30)
+            self.spin_range_start.setValue(0)
+            self.spin_range_end.setValue(0)
             self.btn_color.setStyleSheet(
                 "background: #ffffff; color: #000; border-radius: 4px; font-weight: 600;"
             )
@@ -3317,6 +3361,8 @@ class GifTextApp(QMainWindow):
         self.spin_frame_out.setValue(layer.frame_out)
         self.spin_fade_in.setValue(layer.fade_in)
         self.spin_fade_out.setValue(layer.fade_out)
+        self.spin_range_start.setValue(layer.frame_in)
+        self.spin_range_end.setValue(layer.frame_out if layer.frame_out >= 0 else max(0, self.total_frames - 1))
         stagger_idx = self.stagger_combo.findData(layer.stagger_mode)
         self.stagger_combo.setCurrentIndex(stagger_idx if stagger_idx >= 0 else self.stagger_combo.findData("off"))
         self.spin_stagger_frames.setValue(layer.stagger_frames)
@@ -3331,7 +3377,8 @@ class GifTextApp(QMainWindow):
                   self.chk_bold, self.chk_italic, self.chk_upper, self.chk_shadow,
                   self.chk_bgbox, self.align_combo, self.spin_frame_in,
                   self.spin_frame_out, self.spin_fade_in, self.spin_fade_out,
-                  self.stagger_combo, self.spin_stagger_frames, self.spin_path_span]:
+                  self.stagger_combo, self.spin_stagger_frames, self.spin_path_span,
+                  self.spin_range_start, self.spin_range_end]:
             w.blockSignals(b)
 
     def _on_text_changed(self):
@@ -3477,7 +3524,86 @@ class GifTextApp(QMainWindow):
             self._update_all()
             self.statusBar().showMessage(f"Keyframe deleted at frame {self.current_frame + 1}")
 
-    def _copy_keyframe_range(self):
+    def _range_bounds(self):
+        start = min(self.spin_range_start.value(), self.spin_range_end.value())
+        end = max(self.spin_range_start.value(), self.spin_range_end.value())
+        if self.total_frames > 0:
+            start = max(0, min(start, self.total_frames - 1))
+            end = max(0, min(end, self.total_frames - 1))
+        return start, end
+
+    def _apply_current_keyframe_to_range(self):
+        if not self.selected_layer:
+            return
+        start, end = self._range_bounds()
+        source = self.selected_layer.get_keyframe_at(self.current_frame) or self.selected_layer.get_interpolated(self.current_frame)
+        for frame in range(start, end + 1):
+            kf = source.copy()
+            kf.frame = frame
+            self.selected_layer.set_keyframe(kf)
+        self._snapshot()
+        self._update_all()
+        self.statusBar().showMessage(f"Applied current keyframe to frames {start + 1}-{end + 1}")
+
+    def _copy_keyframes_in_range(self):
+        if not self.selected_layer:
+            return
+        start, end = self._range_bounds()
+        copied = []
+        for keyframe in sorted(self.selected_layer.keyframes, key=lambda k: k.frame):
+            if start <= keyframe.frame <= end:
+                copied.append((keyframe.frame - start, keyframe.to_dict()))
+        self.copied_keyframe_range = copied
+        self.statusBar().showMessage(f"Copied {len(copied)} keyframes from frames {start + 1}-{end + 1}")
+
+    def _paste_keyframe_range(self):
+        if not self.selected_layer:
+            return
+        if not self.copied_keyframe_range:
+            self.statusBar().showMessage("No copied range keyframes to paste")
+            return
+        start, _end = self._range_bounds()
+        pasted = 0
+        max_frame = max(0, self.total_frames - 1)
+        for offset, payload in self.copied_keyframe_range:
+            frame = min(max_frame, start + offset)
+            kf = TextKeyframe.from_dict(payload)
+            kf.frame = frame
+            self.selected_layer.set_keyframe(kf)
+            pasted += 1
+        self._snapshot()
+        self._update_all()
+        self.statusBar().showMessage(f"Pasted {pasted} keyframes starting at frame {start + 1}")
+
+    def _delete_keyframe_range(self):
+        if not self.selected_layer:
+            return
+        start, end = self._range_bounds()
+        before = len(self.selected_layer.keyframes)
+        self.selected_layer.keyframes = [
+            keyframe for keyframe in self.selected_layer.keyframes
+            if not (start <= keyframe.frame <= end)
+        ]
+        if not self.selected_layer.keyframes:
+            fallback = self.selected_layer.get_interpolated(start)
+            fallback.frame = start
+            self.selected_layer.keyframes = [fallback]
+        removed = before - len(self.selected_layer.keyframes)
+        self._snapshot()
+        self._update_all()
+        self.statusBar().showMessage(f"Deleted {removed} keyframes from frames {start + 1}-{end + 1}")
+
+    def _set_visibility_to_range(self):
+        if not self.selected_layer:
+            return
+        start, end = self._range_bounds()
+        self.selected_layer.frame_in = start
+        self.selected_layer.frame_out = end
+        self._snapshot()
+        self._update_all()
+        self.statusBar().showMessage(f"Layer visible on frames {start + 1}-{end + 1}")
+
+    def _repeat_keyframe_10_frames(self):
         if not self.selected_layer:
             return
         layer = self.selected_layer
