@@ -22,6 +22,8 @@ from GifText import (
     build_path_keyframes,
     render_text_pil,
     sample_cubic_path,
+    parse_subtitle_text,
+    subtitle_entries_to_layers,
     validate_project_payload,
 )
 from PIL import Image
@@ -192,7 +194,7 @@ class ProjectValidationTests(unittest.TestCase):
         ]
         return {
             "schema_version": PROJECT_SCHEMA_VERSION,
-            "version": "1.3.9",
+            "version": "1.4.0",
             "gif_path": "clip.gif",
             "gif_relpath": "clip.gif",
             "layers": [layer.to_dict()],
@@ -239,6 +241,64 @@ class ProjectValidationTests(unittest.TestCase):
             self.assertEqual(window.layers, [existing])
             self.assertEqual(window.gif_path, "current.gif")
             self.assertIn("frame_out", window.diagnostics_view.toPlainText())
+            window.close()
+
+
+class SubtitleImportTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QApplication.instance() or QApplication([])
+
+    def test_parse_srt_and_vtt_cues(self):
+        srt = """1
+00:00:00,000 --> 00:00:01,200
+First line
+
+2
+00:00:01,200 --> 00:00:02,000
+Second
+line
+"""
+        vtt = """WEBVTT
+
+00:00:00.500 --> 00:00:01.500
+Web cue
+"""
+
+        srt_entries = parse_subtitle_text(srt)
+        vtt_entries = parse_subtitle_text(vtt)
+
+        self.assertEqual(srt_entries[0], (0.0, 1.2, "First line"))
+        self.assertEqual(srt_entries[1], (1.2, 2.0, "Second\nline"))
+        self.assertEqual(vtt_entries, [(0.5, 1.5, "Web cue")])
+
+    def test_subtitle_entries_create_timed_layers(self):
+        entries = [(0.0, 0.1, "A"), (0.1, 0.3, "B")]
+        layers = subtitle_entries_to_layers(entries, [100, 100, 100], 3)
+
+        self.assertEqual([layer.text for layer in layers], ["A", "B"])
+        self.assertEqual((layers[0].frame_in, layers[0].frame_out), (0, 1))
+        self.assertEqual((layers[1].frame_in, layers[1].frame_out), (1, 2))
+        self.assertFalse(layers[0].uppercase)
+        self.assertTrue(layers[0].bg_box)
+        self.assertEqual(layers[0].keyframes[0].frame, 0)
+
+    def test_app_import_subtitle_file_adds_editable_layers(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "captions.srt")
+            with open(path, "w", encoding="utf-8") as handle:
+                handle.write("1\n00:00:00,000 --> 00:00:00,200\nHello\n")
+            window = GifTextApp()
+            window.gif_pil_frames = [Image.new("RGBA", (8, 8)), Image.new("RGBA", (8, 8))]
+            window.frame_durations = [100, 100]
+            window.total_frames = 2
+
+            window._import_subtitle_file(path)
+
+            self.assertEqual(len(window.layers), 1)
+            self.assertEqual(window.layers[0].text, "Hello")
+            self.assertEqual(window.layers[0].frame_out, 1)
+            self.assertEqual(window.selected_layer, window.layers[0])
             window.close()
 
 

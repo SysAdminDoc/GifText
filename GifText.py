@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-GifText v1.3.9 - Animated GIF Text Editor
+GifText v1.4.0 - Animated GIF Text Editor
 Full-featured meme text animator with keyframe animation, onion skinning,
 undo/redo, project save/load, drag-resize, text presets, and more.
 """
@@ -49,7 +49,7 @@ from PIL import Image, ImageDraw, ImageFont
 import cv2
 import numpy as np
 
-VERSION = "1.3.9"
+VERSION = "1.4.0"
 PROJECT_SCHEMA_VERSION = 2
 
 LAYER_COLORS = [
@@ -901,6 +901,81 @@ def build_project_payload(gif_path, layers, project_path=None):
         "gif_relpath": rel_path,
         "layers": [layer.to_dict() for layer in layers],
     }
+
+
+def parse_subtitle_timestamp(value):
+    match = re.match(r"^\s*(?:(\d+):)?(\d{1,2}):(\d{2})([,.](\d{1,3}))?\s*$", value)
+    if not match:
+        raise ValueError(f"Invalid subtitle timestamp: {value}")
+    hours = int(match.group(1) or 0)
+    minutes = int(match.group(2))
+    seconds = int(match.group(3))
+    millis = int((match.group(5) or "0").ljust(3, "0")[:3])
+    return hours * 3600.0 + minutes * 60.0 + seconds + millis / 1000.0
+
+
+def parse_subtitle_text(text):
+    entries = []
+    blocks = re.split(r"\n\s*\n", text.replace("\r\n", "\n").replace("\r", "\n").strip())
+    for block in blocks:
+        lines = [line.strip("\ufeff") for line in block.split("\n") if line.strip()]
+        if not lines:
+            continue
+        if lines[0].strip().upper().startswith("WEBVTT"):
+            continue
+        if re.fullmatch(r"\d+", lines[0].strip()) and len(lines) > 1:
+            lines = lines[1:]
+        if not lines or "-->" not in lines[0]:
+            continue
+        start_raw, end_raw = [part.strip().split()[0] for part in lines[0].split("-->", 1)]
+        caption = "\n".join(line.strip() for line in lines[1:]).strip()
+        if not caption:
+            continue
+        entries.append((parse_subtitle_timestamp(start_raw), parse_subtitle_timestamp(end_raw), caption))
+    return entries
+
+
+def frame_for_time(seconds, frame_durations, total_frames):
+    if total_frames <= 1:
+        return 0
+    target_ms = max(0.0, seconds * 1000.0)
+    elapsed = 0.0
+    for idx, duration in enumerate(frame_durations[:total_frames]):
+        elapsed += max(1, int(duration))
+        if target_ms < elapsed:
+            return idx
+    return total_frames - 1
+
+
+def subtitle_entries_to_layers(entries, frame_durations, total_frames):
+    layers = []
+    for start_seconds, end_seconds, caption in entries:
+        start_frame = frame_for_time(start_seconds, frame_durations, total_frames)
+        end_frame = frame_for_time(max(start_seconds, end_seconds), frame_durations, total_frames)
+        if end_frame < start_frame:
+            end_frame = start_frame
+        layer = TextLayer(caption)
+        layer.uppercase = False
+        layer.alignment = "center"
+        layer.frame_in = start_frame
+        layer.frame_out = end_frame
+        layer.fade_in = 1
+        layer.fade_out = 1
+        layer.bg_box = True
+        layer.keyframes = [
+            TextKeyframe(
+                frame=start_frame,
+                x=0.5,
+                y=0.84,
+                font_size=30,
+                color="#ffffff",
+                outline_color="#000000",
+                outline_width=2,
+                outline_opacity=0.9,
+            )
+        ]
+        layers.append(layer)
+    return layers
 
 
 # ============================================================================
@@ -2171,6 +2246,13 @@ class GifTextApp(QMainWindow):
         self.btn_load_proj.clicked.connect(self._load_project)
         utility_row.addWidget(self.btn_load_proj)
 
+        self.btn_import_subs = QPushButton("Import Subtitles")
+        self.btn_import_subs.setObjectName("ghost")
+        self.btn_import_subs.setMinimumHeight(36)
+        self.btn_import_subs.clicked.connect(self._import_subtitles)
+        self.btn_import_subs.setEnabled(False)
+        utility_row.addWidget(self.btn_import_subs)
+
         # Undo/Redo
         self.btn_undo = QPushButton("Undo")
         self.btn_undo.setObjectName("ghost")
@@ -2911,6 +2993,7 @@ class GifTextApp(QMainWindow):
             self.btn_add.setEnabled(True)
             self.btn_export.setEnabled(True)
             self.btn_save_proj.setEnabled(True)
+            self.btn_import_subs.setEnabled(True)
             self.layer_timeline.total_frames = self.total_frames
             self._rebuild_layer_list()
             self.info_label.setText(f"{self.gif_width}x{self.gif_height} | {self.total_frames}f | {os.path.basename(self.gif_path)}")
@@ -3695,6 +3778,35 @@ class GifTextApp(QMainWindow):
     # ================================================================
     #  Project Save / Load
     # ================================================================
+
+    def _import_subtitles(self):
+        if not self.gif_pil_frames:
+            return
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Import Subtitles", "", "Subtitle Files (*.srt *.vtt);;All Files (*)"
+        )
+        if path:
+            self._import_subtitle_file(path)
+
+    def _import_subtitle_file(self, path):
+        try:
+            with open(path, encoding="utf-8-sig") as handle:
+                entries = parse_subtitle_text(handle.read())
+            if not entries:
+                self._show_error("Import subtitles", "No subtitle cues found", path=path, dialog=False)
+                return
+            imported = subtitle_entries_to_layers(entries, self.frame_durations, self.total_frames)
+            if not imported:
+                self._show_error("Import subtitles", "No subtitle layers could be created", path=path, dialog=False)
+                return
+            self.layers.extend(imported)
+            self.selected_layer = imported[0]
+            self._rebuild_layer_list()
+            self._snapshot()
+            self._update_all()
+            self.statusBar().showMessage(f"Imported {len(imported)} subtitle layers from {os.path.basename(path)}")
+        except Exception as e:
+            self._show_error("Import subtitles", str(e), path=path, exc=e)
 
     def _save_project(self):
         if not self.gif_path:

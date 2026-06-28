@@ -89,13 +89,6 @@ else handles cleanly on desktop.
 
 ## Research-Driven Additions
 
-- [ ] P1 - Import SRT/VTT subtitle tracks as timed text layers
-  Why: Gifcurry and commercial editors treat subtitle import as a core caption workflow, while GifText already has layer timing and text reveal primitives.
-  Evidence: Gifcurry subtitle import; VEED subtitle workflow; `TextLayer.frame_in/frame_out` in `GifText.py:576`.
-  Touches: `GifText.py`, subtitle parser module, `test_giftext.py`
-  Acceptance: Importing `.srt` or `.vtt` creates editable layers with frame-aligned in/out timing and preserves multi-line captions.
-  Complexity: M
-
 - [ ] P1 - Add range-based keyframe and text-annotation operations
   Why: Ezgif supports per-text frame ranges and ScreenToGif users value changing timing across frame ranges; GifText only has manual keyframes and a fixed "Repeat 10 Frames" action.
   Evidence: Ezgif frame-range annotations; ScreenToGif timing/range editing; `GifText.py:2714`.

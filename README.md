@@ -1,6 +1,6 @@
 # GifText
 
-![Version](https://img.shields.io/badge/version-v1.3.9-blue) ![License](https://img.shields.io/badge/license-MIT-green) ![Platform](https://img.shields.io/badge/platform-Python-lightgrey)
+![Version](https://img.shields.io/badge/version-v1.4.0-blue) ![License](https://img.shields.io/badge/license-MIT-green) ![Platform](https://img.shields.io/badge/platform-Python-lightgrey)
 
 Add animated text to GIFs for meme creation. Track text labels on moving subjects with keyframe-based animation and smooth interpolation.
 
@@ -14,6 +14,7 @@ Add animated text to GIFs for meme creation. Track text labels on moving subject
 - **Motion Presets** - Generate editable Bounce, Wiggle, and Shake emphasis keyframes
 - **Easing Curve Picker** - Choose per-keyframe cubic Bezier timing curves for interpolation
 - **Staggered Text Reveal** - Reveal lines, words, or letters over time for animated captions
+- **Subtitle Import** - Import SRT/VTT captions as timed editable text layers
 - **Separate Stroke & Shadow Styling** - Tune stroke opacity plus shadow color/opacity independently
 - **Responsive Long Jobs** - GIF loading, tracking, and export run in cancellable background workers
 - **Structured Diagnostics** - Load, project, recent-file, tracking, and export failures write timestamped logs and appear in the in-app Diagnostics panel
@@ -59,9 +60,10 @@ Dependencies:
 6. **Drag** names to follow movement (keyframes auto-created)
 7. Use **Track Forward** to generate motion keyframes when the subject is easy to follow
 8. Use **Draw Path** when a label should follow a deliberate arc or swoop
-9. Use **Bounce**, **Wiggle**, or **Shake** to add emphasis over the selected span
-10. Repeat until the end - interpolation fills the gaps smoothly
-11. **Export** as GIF, WebP, or PNG sequence
+9. Import `.srt` or `.vtt` captions when you want timed subtitle layers
+10. Use **Bounce**, **Wiggle**, or **Shake** to add emphasis over the selected span
+11. Repeat until the end - interpolation fills the gaps smoothly
+12. **Export** as GIF, WebP, or PNG sequence
 
 ## Controls
 
