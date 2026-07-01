@@ -49,6 +49,14 @@ from PIL import Image, ImageDraw, ImageFont
 import cv2
 import numpy as np
 
+try:
+    import imageio.v3 as iio
+    HAS_IMAGEIO = True
+except ImportError:
+    HAS_IMAGEIO = False
+
+VIDEO_EXTENSIONS = {".mp4", ".webm", ".avi", ".mov", ".mkv", ".m4v"}
+
 VERSION = "1.5.0"
 PROJECT_SCHEMA_VERSION = 2
 
@@ -1205,6 +1213,177 @@ class LoadGifWorker(CancelableWorker):
             self.failed.emit(str(exc))
 
 
+class LoadVideoWorker(CancelableWorker):
+    def __init__(self, path, target_fps=10, max_frames=200, max_size=0,
+                 trim_start=0.0, trim_end=0.0):
+        super().__init__()
+        self.path = path
+        self.target_fps = target_fps
+        self.max_frames = max_frames
+        self.max_size = max_size
+        self.trim_start = trim_start
+        self.trim_end = trim_end
+
+    @pyqtSlot()
+    def run(self):
+        if not HAS_IMAGEIO:
+            self.failed.emit("imageio is not installed (pip install imageio imageio-ffmpeg)")
+            return
+        try:
+            meta = iio.immeta(self.path, plugin="pyav")
+            video_fps = meta.get("fps", 30)
+            duration = meta.get("duration", 0)
+            if duration <= 0:
+                self.failed.emit("Could not determine video duration")
+                return
+
+            actual_start = self.trim_start
+            actual_end = self.trim_end if self.trim_end > 0 else duration
+            actual_end = min(actual_end, duration)
+            if actual_start >= actual_end:
+                self.failed.emit("Trim range is empty")
+                return
+
+            clip_duration = actual_end - actual_start
+            step = max(1, int(round(video_fps / self.target_fps)))
+            frame_duration_ms = int(round(1000.0 / self.target_fps))
+            start_frame_idx = int(actual_start * video_fps)
+            end_frame_idx = int(actual_end * video_fps)
+
+            pil_frames = []
+            frame_bytes = []
+            durations = []
+            width = height = 0
+            frame_idx = 0
+            sampled = 0
+
+            for raw_frame in iio.imiter(self.path, plugin="pyav"):
+                if self._is_canceled():
+                    self.canceled.emit()
+                    return
+                if frame_idx < start_frame_idx:
+                    frame_idx += 1
+                    continue
+                if frame_idx >= end_frame_idx:
+                    break
+                if (frame_idx - start_frame_idx) % step != 0:
+                    frame_idx += 1
+                    continue
+
+                frame = Image.fromarray(raw_frame).convert("RGBA")
+                if self.max_size > 0 and (frame.width > self.max_size or frame.height > self.max_size):
+                    ratio = self.max_size / max(frame.width, frame.height)
+                    new_w = max(1, int(frame.width * ratio))
+                    new_h = max(1, int(frame.height * ratio))
+                    frame = frame.resize((new_w, new_h), Image.LANCZOS)
+                if width == 0:
+                    width, height = frame.width, frame.height
+                pil_frames.append(frame)
+                frame_bytes.append(frame.tobytes("raw", "RGBA"))
+                durations.append(frame_duration_ms)
+                sampled += 1
+                progress = min(99, int((frame_idx - start_frame_idx) / max(1, end_frame_idx - start_frame_idx) * 100))
+                self.progress.emit(progress, f"Reading frame {sampled}")
+                if sampled >= self.max_frames:
+                    break
+                frame_idx += 1
+
+            if len(pil_frames) < 2:
+                self.failed.emit("Video produced fewer than 2 frames at the selected settings")
+                return
+
+            self.finished.emit({
+                "path": self.path,
+                "width": width,
+                "height": height,
+                "pil_frames": pil_frames,
+                "frame_bytes": frame_bytes,
+                "durations": durations,
+            })
+        except Exception as exc:
+            self.failed.emit(str(exc))
+
+
+def get_video_metadata(path):
+    if not HAS_IMAGEIO:
+        return None
+    try:
+        meta = iio.immeta(path, plugin="pyav")
+        return {
+            "fps": meta.get("fps", 30),
+            "duration": meta.get("duration", 0),
+            "size": meta.get("size", (0, 0)),
+        }
+    except Exception:
+        return None
+
+
+class VideoImportDialog(QMessageBox):
+    def __init__(self, parent, path, meta):
+        super().__init__(parent)
+        self.setWindowTitle("Import Video")
+        self.setIcon(QMessageBox.Icon.Question)
+        fps = meta.get("fps", 30)
+        dur = meta.get("duration", 0)
+        w, h = meta.get("size", (0, 0))
+        self.setText(
+            f"<b>{os.path.basename(path)}</b><br>"
+            f"{w}x{h} | {fps:.1f} fps | {dur:.1f}s<br><br>"
+            f"Import settings:"
+        )
+
+        grid = QWidget()
+        layout = QGridLayout(grid)
+        layout.setContentsMargins(0, 0, 0, 0)
+
+        layout.addWidget(QLabel("Target FPS:"), 0, 0)
+        self.spin_fps = QSpinBox()
+        self.spin_fps.setRange(1, 60)
+        self.spin_fps.setValue(min(10, int(fps)))
+        layout.addWidget(self.spin_fps, 0, 1)
+
+        layout.addWidget(QLabel("Max frames:"), 1, 0)
+        self.spin_max = QSpinBox()
+        self.spin_max.setRange(2, 2000)
+        self.spin_max.setValue(200)
+        layout.addWidget(self.spin_max, 1, 1)
+
+        layout.addWidget(QLabel("Max dimension (0=original):"), 2, 0)
+        self.spin_size = QSpinBox()
+        self.spin_size.setRange(0, 4096)
+        self.spin_size.setValue(0)
+        self.spin_size.setSingleStep(64)
+        layout.addWidget(self.spin_size, 2, 1)
+
+        layout.addWidget(QLabel("Trim start (s):"), 3, 0)
+        self.spin_start = QDoubleSpinBox()
+        self.spin_start.setRange(0, max(0, dur - 0.1))
+        self.spin_start.setValue(0)
+        self.spin_start.setDecimals(1)
+        self.spin_start.setSingleStep(0.5)
+        layout.addWidget(self.spin_start, 3, 1)
+
+        layout.addWidget(QLabel("Trim end (s, 0=full):"), 4, 0)
+        self.spin_end = QDoubleSpinBox()
+        self.spin_end.setRange(0, dur)
+        self.spin_end.setValue(0)
+        self.spin_end.setDecimals(1)
+        self.spin_end.setSingleStep(0.5)
+        layout.addWidget(self.spin_end, 4, 1)
+
+        self.layout().addWidget(grid, 1, 1)
+        self.setStandardButtons(QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel)
+
+    def get_settings(self):
+        return {
+            "fps": self.spin_fps.value(),
+            "max_frames": self.spin_max.value(),
+            "max_size": self.spin_size.value(),
+            "trim_start": self.spin_start.value(),
+            "trim_end": self.spin_end.value(),
+        }
+
+
 class TrackingWorker(CancelableWorker):
     def __init__(self, pil_frames, start_frame, rx, ry):
         super().__init__()
@@ -1942,15 +2121,16 @@ class GifCanvas(QWidget):
     def dragEnterEvent(self, event):
         if event.mimeData().hasUrls():
             for url in event.mimeData().urls():
-                if url.toLocalFile().lower().endswith('.gif'):
+                ext = os.path.splitext(url.toLocalFile())[1].lower()
+                if ext == '.gif' or ext in VIDEO_EXTENSIONS:
                     event.acceptProposedAction()
                     return
 
     def dropEvent(self, event):
         for url in event.mimeData().urls():
             path = url.toLocalFile()
-            if path.lower().endswith('.gif'):
-                # Signal to parent
+            ext = os.path.splitext(path)[1].lower()
+            if ext == '.gif' or ext in VIDEO_EXTENSIONS:
                 self.window()._load_gif_from_path(path)
                 break
 
@@ -2220,7 +2400,7 @@ class GifTextApp(QMainWindow):
         primary_row = QHBoxLayout()
         primary_row.setSpacing(8)
 
-        self.btn_load = QPushButton("Load GIF")
+        self.btn_load = QPushButton("Load Media")
         self.btn_load.setObjectName("accent")
         self.btn_load.setMinimumHeight(36)
         self.btn_load.clicked.connect(self._load_gif)
@@ -2295,7 +2475,7 @@ class GifTextApp(QMainWindow):
 
         utility_row.addStretch()
 
-        self.hint_label = QLabel("Drop a GIF to begin, then add a text layer and scrub frame by frame.")
+        self.hint_label = QLabel("Drop a GIF or video to begin, then add a text layer and scrub frame by frame.")
         self.hint_label.setObjectName("workspaceHint")
         utility_row.addWidget(self.hint_label)
         hl.addLayout(utility_row)
@@ -3008,14 +3188,49 @@ class GifTextApp(QMainWindow):
     # ================================================================
 
     def _load_gif(self):
-        path, _ = QFileDialog.getOpenFileName(
-            self, "Open Animated GIF", "", "GIF Files (*.gif);;All Files (*)"
-        )
-        if path:
+        filters = "GIF Files (*.gif)"
+        if HAS_IMAGEIO:
+            filters = "Media Files (*.gif *.mp4 *.webm *.avi *.mov *.mkv *.m4v);;GIF Files (*.gif);;Video Files (*.mp4 *.webm *.avi *.mov *.mkv *.m4v);;All Files (*)"
+        else:
+            filters = "GIF Files (*.gif);;All Files (*)"
+        path, _ = QFileDialog.getOpenFileName(self, "Open Media", "", filters)
+        if not path:
+            return
+        ext = os.path.splitext(path)[1].lower()
+        if ext in VIDEO_EXTENSIONS:
+            self._load_video_from_path(path)
+        else:
             self._load_gif_from_path(path)
 
     def _load_gif_from_path(self, path, project_payload=None):
+        ext = os.path.splitext(path)[1].lower()
+        if ext in VIDEO_EXTENSIONS:
+            self._load_video_from_path(path, project_payload=project_payload)
+            return
         if self._start_worker("Load GIF", LoadGifWorker(path), self._on_gif_loaded):
+            self.pending_project_payload = project_payload
+
+    def _load_video_from_path(self, path, project_payload=None):
+        meta = get_video_metadata(path)
+        if meta is None:
+            self._show_error("Load Video", "Could not read video metadata (imageio not available)", path=path, dialog=True)
+            return
+        if meta["duration"] <= 0:
+            self._show_error("Load Video", "Could not determine video duration", path=path, dialog=True)
+            return
+        dlg = VideoImportDialog(self, path, meta)
+        if dlg.exec() != QMessageBox.StandardButton.Ok:
+            return
+        settings = dlg.get_settings()
+        worker = LoadVideoWorker(
+            path,
+            target_fps=settings["fps"],
+            max_frames=settings["max_frames"],
+            max_size=settings["max_size"],
+            trim_start=settings["trim_start"],
+            trim_end=settings["trim_end"],
+        )
+        if self._start_worker("Load Video", worker, self._on_gif_loaded):
             self.pending_project_payload = project_payload
 
     def _on_gif_loaded(self, data):

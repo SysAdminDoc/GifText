@@ -8,6 +8,7 @@ Add animated text to GIFs for meme creation. Track text labels on moving subject
 
 ## Features
 
+- **Video Import** - Load short video clips (MP4, WebM, AVI, MOV) with FPS, trim, and resize controls
 - **Keyframe Animation** - Position, size, opacity, rotation, and color all animatable per-frame with smooth ease-in-out interpolation
 - **OpenCV Motion Tracking** - Generate forward keyframes from the selected layer position with CSRT/KCF when available and optical-flow fallback
 - **Bezier Path Animation** - Draw a four-point path and generate editable position keyframes over a chosen frame span
@@ -51,10 +52,11 @@ Dependencies:
 - Pillow
 - OpenCV
 - NumPy
+- imageio + imageio-ffmpeg (for video import)
 
 ## Workflow Example: Labeling People in a GIF
 
-1. **Load** your GIF (or drag & drop it)
+1. **Load** your GIF or video (or drag & drop it)
 2. **Add text layers** - one per person/object
 3. **Type names** in the text panel
 4. **Drag** each name above its subject on frame 1

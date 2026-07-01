@@ -10,24 +10,29 @@ from GifText import (
     DiagnosticsRecorder,
     ExportWorker,
     GifTextApp,
+    HAS_IMAGEIO,
     LoadGifWorker,
+    LoadVideoWorker,
     PROJECT_SCHEMA_VERSION,
     ProjectValidationError,
     TextKeyframe,
     TextLayer,
     VERSION,
+    VIDEO_EXTENSIONS,
     apply_easing_curve,
     apply_staggered_text,
     build_project_payload,
     build_effect_keyframes,
     build_path_keyframes,
     get_pil_font,
+    get_video_metadata,
     render_text_pil,
     sample_cubic_path,
     parse_subtitle_text,
     subtitle_entries_to_layers,
     validate_project_payload,
 )
+import numpy as np
 from PIL import Image
 from PyQt6.QtGui import QPixmap
 from PyQt6.QtWidgets import QApplication
@@ -594,6 +599,90 @@ class WorkerTests(unittest.TestCase):
 
         self.assertIsNotNone(font)
         self.assertIsNotNone(rendered.getbbox())
+
+
+class VideoImportTests(unittest.TestCase):
+    def _make_test_video(self, tmp_dir, duration_frames=30, fps=10, width=64, height=48):
+        if not HAS_IMAGEIO:
+            return None
+        import av
+        path = os.path.join(tmp_dir, "test.mp4")
+        container = av.open(path, mode="w")
+        stream = container.add_stream("mpeg4", rate=fps)
+        stream.width = width
+        stream.height = height
+        stream.pix_fmt = "yuv420p"
+        for i in range(duration_frames):
+            r = int(255 * i / duration_frames)
+            arr = np.full((height, width, 3), [r, 50, 100], dtype=np.uint8)
+            frame = av.VideoFrame.from_ndarray(arr, format="rgb24")
+            for packet in stream.encode(frame):
+                container.mux(packet)
+        for packet in stream.encode():
+            container.mux(packet)
+        container.close()
+        return path
+
+    @unittest.skipUnless(HAS_IMAGEIO, "imageio not installed")
+    def test_video_metadata_returns_fps_and_duration(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._make_test_video(tmp, duration_frames=20, fps=10)
+            meta = get_video_metadata(path)
+            self.assertIsNotNone(meta)
+            self.assertAlmostEqual(meta["fps"], 10, delta=1)
+            self.assertGreater(meta["duration"], 0)
+
+    @unittest.skipUnless(HAS_IMAGEIO, "imageio not installed")
+    def test_video_worker_reads_frames(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._make_test_video(tmp, duration_frames=20, fps=10)
+            worker = LoadVideoWorker(path, target_fps=5, max_frames=100)
+            results = []
+            failures = []
+            worker.finished.connect(results.append)
+            worker.failed.connect(failures.append)
+
+            worker.run()
+
+            self.assertEqual(failures, [])
+            self.assertEqual(len(results), 1)
+            data = results[0]
+            self.assertGreaterEqual(len(data["pil_frames"]), 2)
+            self.assertEqual(data["width"], 64)
+            self.assertEqual(data["height"], 48)
+            self.assertEqual(len(data["durations"]), len(data["pil_frames"]))
+
+    @unittest.skipUnless(HAS_IMAGEIO, "imageio not installed")
+    def test_video_worker_respects_max_frames(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._make_test_video(tmp, duration_frames=50, fps=10)
+            worker = LoadVideoWorker(path, target_fps=10, max_frames=5)
+            results = []
+            worker.finished.connect(results.append)
+            worker.failed.connect(lambda _: None)
+
+            worker.run()
+
+            self.assertEqual(len(results[0]["pil_frames"]), 5)
+
+    @unittest.skipUnless(HAS_IMAGEIO, "imageio not installed")
+    def test_video_worker_resizes_frames(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._make_test_video(tmp, duration_frames=10, fps=5, width=200, height=150)
+            worker = LoadVideoWorker(path, target_fps=5, max_frames=100, max_size=80)
+            results = []
+            worker.finished.connect(results.append)
+            worker.failed.connect(lambda _: None)
+
+            worker.run()
+
+            data = results[0]
+            self.assertLessEqual(data["width"], 80)
+            self.assertLessEqual(data["height"], 80)
+
+    def test_video_extensions_include_common_formats(self):
+        for ext in [".mp4", ".webm", ".avi", ".mov"]:
+            self.assertIn(ext, VIDEO_EXTENSIONS)
 
 
 if __name__ == "__main__":
