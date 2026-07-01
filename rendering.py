@@ -17,8 +17,21 @@ UNICODE_FALLBACK_FONTS = [
 ]
 
 
+_custom_font_paths: dict[str, str] = {}
+
+
+def register_custom_font(family_lower: str, path: str):
+    _custom_font_paths[family_lower] = path
+
+
 def get_pil_font(layer, size, sample_text=""):
-    family = layer.font_family.lower().replace(' ', '')
+    family_lower = layer.font_family.lower()
+    if family_lower in _custom_font_paths:
+        try:
+            return ImageFont.truetype(_custom_font_paths[family_lower], size)
+        except Exception:
+            pass
+    family = family_lower.replace(' ', '')
     candidates = []
     if layer.bold and layer.italic:
         candidates += [f"{family}bi.ttf", f"{family}z.ttf"]

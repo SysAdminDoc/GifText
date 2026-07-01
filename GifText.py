@@ -69,6 +69,7 @@ from models import (
 from rendering import (
     UNICODE_FALLBACK_FONTS,
     get_pil_font,
+    register_custom_font,
     render_text_pil,
 )
 from project import (
@@ -1205,6 +1206,7 @@ class GifTextApp(QMainWindow):
         self.diagnostics = DiagnosticsRecorder()
         self.diagnostic_lines: list[str] = []
         self.copied_keyframe_range: list[tuple[int, dict]] = []
+        self.custom_font_paths: dict[str, str] = {}
 
         self.playing = False
         self.play_speed = 1.0
@@ -1569,10 +1571,18 @@ class GifTextApp(QMainWindow):
         r += 1
 
         tgl.addWidget(QLabel("Font:"), r, 0)
+        font_row = QHBoxLayout()
         self.font_combo = QFontComboBox()
         self.font_combo.setCurrentFont(QFont("Impact"))
         self.font_combo.currentFontChanged.connect(self._on_font_changed)
-        tgl.addWidget(self.font_combo, r, 1, 1, 2)
+        font_row.addWidget(self.font_combo, 1)
+        self.btn_load_font = QPushButton("+")
+        self.btn_load_font.setObjectName("ghost")
+        self.btn_load_font.setFixedSize(30, 30)
+        self.btn_load_font.setToolTip("Load a TTF/OTF font from disk")
+        self.btn_load_font.clicked.connect(self._load_custom_font)
+        font_row.addWidget(self.btn_load_font)
+        tgl.addLayout(font_row, r, 1, 1, 2)
         r += 1
 
         style_row = QHBoxLayout()
@@ -1922,6 +1932,7 @@ class GifTextApp(QMainWindow):
         self.speed_combo.setAccessibleName("Playback speed")
         self.txt_input.setAccessibleName("Caption text")
         self.font_combo.setAccessibleName("Font family")
+        self.btn_load_font.setAccessibleName("Load custom font from disk")
         self.chk_bold.setAccessibleName("Bold text")
         self.chk_italic.setAccessibleName("Italic text")
         self.chk_upper.setAccessibleName("All caps")
@@ -2598,6 +2609,28 @@ class GifTextApp(QMainWindow):
         self._schedule_snapshot(420)
         self._rebuild_layer_list()
         self._update_all()
+
+    def _load_custom_font(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Load Custom Font", "",
+            "Font Files (*.ttf *.otf);;All Files (*)"
+        )
+        if not path:
+            return
+        from PyQt6.QtGui import QFontDatabase
+        font_id = QFontDatabase.addApplicationFont(path)
+        if font_id < 0:
+            self.statusBar().showMessage(f"Failed to load font: {os.path.basename(path)}")
+            return
+        families = QFontDatabase.applicationFontFamilies(font_id)
+        if not families:
+            self.statusBar().showMessage(f"No font families found in {os.path.basename(path)}")
+            return
+        family = families[0]
+        self.custom_font_paths[family.lower()] = path
+        register_custom_font(family.lower(), path)
+        self.font_combo.setCurrentFont(QFont(family))
+        self.statusBar().showMessage(f"Loaded font: {family}")
 
     def _on_font_changed(self, font):
         if self.selected_layer:

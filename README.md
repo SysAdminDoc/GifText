@@ -26,6 +26,7 @@ Add animated text to GIFs for meme creation. Track text labels on moving subject
 - **Layer Timeline** - Visual bars with keyframe diamonds and playhead
 - **Range Tools** - Apply, copy, paste, delete, and visibility-limit keyframes across selected frame ranges
 - **Fade In/Out** - Per-layer entry and exit animations
+- **Custom Font Import** - Load any TTF/OTF font from disk for both preview and export
 - **Meme Presets** - Classic Meme, Modern Clean, Subtitle, Bold Impact, Neon
 - **Background Box** - Semi-transparent subtitle-style background
 - **Undo/Redo** - Full 50-level undo history (Ctrl+Z / Ctrl+Y)
