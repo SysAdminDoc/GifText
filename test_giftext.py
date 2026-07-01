@@ -170,6 +170,48 @@ class PathAnimationTests(unittest.TestCase):
         rendered = render_text_pil(frame, layer, 0, 1)
         self.assertIsNotNone(rendered)
 
+    def test_layer_from_dict_sanitizes_invalid_stagger_mode(self):
+        d = TextLayer("test").to_dict()
+        d["stagger_mode"] = "invalid_mode"
+        restored = TextLayer.from_dict(d)
+        self.assertEqual(restored.stagger_mode, "off")
+
+    def test_layer_interpolation_with_single_keyframe(self):
+        layer = TextLayer("single")
+        layer.keyframes = [TextKeyframe(frame=5, x=0.3, y=0.7)]
+        kf = layer.get_interpolated(0)
+        self.assertAlmostEqual(kf.x, 0.3)
+        self.assertAlmostEqual(kf.y, 0.7)
+        self.assertEqual(kf.frame, 0)
+
+    def test_undo_manager_deduplicates_identical_snapshots(self):
+        from models import UndoManager
+        mgr = UndoManager()
+        layers = [TextLayer("test")]
+        mgr.snapshot(layers)
+        mgr.snapshot(layers)
+        self.assertEqual(len(mgr._history), 1)
+
+    def test_undo_redo_cycle_restores_state(self):
+        from models import UndoManager
+        mgr = UndoManager()
+        l1 = TextLayer("first")
+        l2 = TextLayer("second")
+        mgr.snapshot([l1])
+        mgr.snapshot([l1, l2])
+        result = mgr.undo()
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0].text, "first")
+        result = mgr.redo()
+        self.assertEqual(len(result), 2)
+
+    def test_validate_rejects_non_dict_layer(self):
+        with self.assertRaises(ProjectValidationError):
+            validate_project_payload({
+                "schema_version": PROJECT_SCHEMA_VERSION,
+                "layers": [42],
+            }, total_frames=2)
+
 
 class DiagnosticsTests(unittest.TestCase):
     @classmethod
