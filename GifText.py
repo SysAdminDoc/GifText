@@ -557,7 +557,7 @@ class GifCanvas(QWidget):
             p.drawText(
                 QRectF(inner.left(), inner.top() + inner.height() * 0.34, inner.width(), 50),
                 int(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop) | int(Qt.TextFlag.TextWordWrap),
-                "Drop a clip onto the stage or use Load GIF to start tracking text across frames."
+                "Drop a clip onto the stage or use Load Media to start tracking text across frames."
             )
 
             chip = QRectF(inner.center().x() - 108, inner.bottom() - 54, 216, 28)
@@ -1855,7 +1855,7 @@ class GifTextApp(QMainWindow):
         tmgl.addWidget(self.spin_stagger_frames, tr, 1)
         rl.addWidget(tmg)
 
-        range_group = QGroupBox("Range Tools")
+        range_group = QGroupBox("6. Range Tools")
         range_layout = QGridLayout(range_group)
         range_layout.setContentsMargins(10, 10, 10, 10)
         range_layout.setSpacing(8)
@@ -2128,7 +2128,7 @@ class GifTextApp(QMainWindow):
         self._set_button_role(self.btn_export, "accent" if has_gif else "ghost")
         if not has_gif:
             self.info_label.setText("No clip loaded")
-            self.hint_label.setText("Drop a GIF to begin, then add a text layer and scrub frame by frame.")
+            self.hint_label.setText("Drop a GIF or video to begin, then add a text layer and scrub frame by frame.")
         elif self.selected_layer:
             self.hint_label.setText("Drag to move, mouse wheel to scrub, Ctrl+wheel to zoom.")
         else:
@@ -2267,20 +2267,27 @@ class GifTextApp(QMainWindow):
                 validate_project_payload(project_payload, total_frames=len(data["pil_frames"]))
 
             new_frames: list[QPixmap] = []
+            new_pil: list[Image.Image] = []
+            new_durations: list[int] = []
             new_width = data["width"]
             new_height = data["height"]
             expected_size = new_width * new_height * 4
-            for frame_bytes in data["frame_bytes"]:
+            for idx, frame_bytes in enumerate(data["frame_bytes"]):
                 if len(frame_bytes) != expected_size:
-                    self.statusBar().showMessage("Frame data size mismatch — skipped corrupt frame")
                     continue
                 qimg = QImage(frame_bytes, new_width, new_height, QImage.Format.Format_RGBA8888)
                 new_frames.append(QPixmap.fromImage(qimg.copy()))
+                new_pil.append(data["pil_frames"][idx])
+                new_durations.append(data["durations"][idx])
+            if len(new_frames) < 2:
+                self._show_error("Load GIF", "Not enough valid frames (need at least 2)", path=data.get("path"))
+                self.pending_project_payload = None
+                return
 
             self._reset_document_state()
             self.gif_frames = new_frames
-            self.gif_pil_frames = data["pil_frames"]
-            self.frame_durations = data["durations"]
+            self.gif_pil_frames = new_pil
+            self.frame_durations = new_durations
             self.gif_width = new_width
             self.gif_height = new_height
             self.gif_path = data["path"]
@@ -3394,7 +3401,8 @@ class GifTextApp(QMainWindow):
                 self._recent_files = []
                 return
             with open(recent_path, encoding='utf-8') as f:
-                self._recent_files = json.load(f)[:10]
+                data = json.load(f)
+            self._recent_files = [p for p in data if isinstance(p, str)][:10] if isinstance(data, list) else []
         except Exception as e:
             self._recent_files = []
             self._record_diagnostic("error", "Load recent files", str(e), path=self._recent_path(), exc=e)

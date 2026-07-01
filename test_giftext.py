@@ -472,7 +472,8 @@ class WorkerTests(unittest.TestCase):
 
     def _has_rendered_text(self, image):
         frame = image.convert("RGB")
-        return any(r > 180 and g > 180 and b > 180 for r, g, b in frame.getdata())
+        pixels = frame.getdata() if not hasattr(frame, 'get_flattened_data') else frame.get_flattened_data()
+        return any(r > 180 and g > 180 and b > 180 for r, g, b in pixels)
 
     def test_load_worker_decodes_generated_gif(self):
         with tempfile.TemporaryDirectory() as tmp:
