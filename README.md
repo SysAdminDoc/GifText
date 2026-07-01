@@ -31,6 +31,7 @@ Add animated text to GIFs for meme creation. Track text labels on moving subject
 - **Background Box** - Semi-transparent subtitle-style background
 - **Undo/Redo** - Full 50-level undo history (Ctrl+Z / Ctrl+Y)
 - **Project Save/Load** - Resume work later with `.giftext` project files
+- **Template Library** - Save and load multi-layer setups as reusable `.giftemplate` files
 - **Autosave & Recovery** - Project state saved every 30 seconds with crash recovery prompt on restart
 - **Versioned Project Schema** - Project loads validate schema, paths, frame ranges, colors, opacity, and keyframe fields before applying state
 - **Multi-Format Export** - GIF, WebP (with alpha), APNG, PNG sequence, MP4, WebM

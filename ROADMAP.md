@@ -7,7 +7,6 @@ else handles cleanly on desktop.
 
 ### Text rendering
 - **Gradient fill** + **rainbow animation** on the text color channel.
-- **Font import** - load any TTF/OTF from disk; font picker with search.
 - **Emoji rendering** via the OS emoji font with color support.
 - **Rich text per-line** - different size/color/weight within one text block.
 - **Curved / arc text** path option.
@@ -16,27 +15,14 @@ else handles cleanly on desktop.
 - **Multi-layer stickers / emoji / shapes** alongside text layers with the same keyframe engine.
 - **Mask layer** - drawable alpha mask that clips text to a subject shape.
 - **Crop / rotate source GIF** non-destructively at export.
-- **Trim range** - cut start/end frames before labeling.
-- **Resize source** for smaller output files.
 
 ### Export
-- **Animated WebP + APNG** in addition to GIF and PNG sequence.
-- **MP4 / WebM** export via PyAV so users can post to platforms that don't accept GIF.
-- **Size-target export** - iteratively re-encode until output <= N MB.
-- **Per-frame delay override** on export.
 - **Palette quality slider** (gif.js-style dither options).
 
 ### Workflow
-- **Import GifStudio project file** (sibling browser app) and reverse - unify the keyframe model
-  across both apps.
 - **Project template library** - save a multi-layer setup as a template, apply to a new GIF.
 - **Recent projects with thumbnails**.
-- **Autosave to IDB-like local cache** every N seconds.
-- **Session recovery** on crash.
 
-### Distribution
-- **macOS `.app`** via py2app, notarized.
-- **Linux AppImage**.
 
 ## Competitive Research
 
@@ -54,12 +40,7 @@ else handles cleanly on desktop.
 
 - **Auto-suggest label position** - detect subjects via BlazeFace/MediaPipe and propose where to
   anchor a label.
-- **Speech-to-text auto-subtitle** via Whisper (small model) on the GIF's audio if source video
-  file is supplied alongside.
-- **Share-to-imgur / giphy** button with user-supplied API token.
-- **Cloud sync of projects** (opt-in, user-owned S3 bucket).
 - **Plugin SDK** (Python entry points) for custom effect layers.
-- **Command-line mode** - headless render from a project file, for batch labeling pipelines.
 
 ## Open-Source Research (Round 2)
 
@@ -73,53 +54,14 @@ else handles cleanly on desktop.
 - **gif.js** - https://github.com/jnordberg/gif.js - Encoder if you want a web-export path in the future.
 
 ### Features to Borrow
-- JSON template save/load from `animeme` - already present but extend: export `.gmtext` templates to share online, import via drag-drop.
-- Keyframe interpolation of font size + rotation + color (`animeme` position-only + `rekapi`) - expand beyond position; opacity fade for meme transitions.
-- Easing curves (`rekapi`) - ease-in/out/back/bounce; current linear only is limiting.
-- Subtitle import `.srt`/`.vtt` (`Gifcurry`) - auto-generate timed text tracks from caption files.
-- CLI rendering (`animeme generate_meme.py`) - headless `python gif_text.py --template=x.json --text="HELLO" --out=out.gif`.
-- Font outline + drop-shadow (`Gifcurry`) - "Impact white on black stroke" is 90% of memes; preset button.
-- Multi-text-layer timeline (each text its own track) - `ScreenToGif` frame-list + per-layer enable/disable.
+- JSON template save/load from `animeme` - extend: export `.gmtext` templates to share online, import via drag-drop.
 
 ### Patterns & Architectures Worth Studying
-- **Actor + timeline model** (`rekapi`): text = actor; keyframes = state at time t; engine tweens. Cleaner than per-frame dict lookup; supports easing + pause/resume.
-- **Dirty-rect repaint**: only re-rasterize the text area on keyframe change, not the whole GIF. Matters once you have 5+ text layers on 200-frame GIFs.
-- **Bezier timing functions** (cubic-bezier) like CSS - store 4 control points, evaluate per-frame. Tiny code, huge UX gain vs linear.
-- **Template versioning**: animeme's JSON is flat; add `{"schema_version": 2, ...}` now so future fields (opacity, rotation, outline) don't break old templates.
+- **Actor + timeline model** (`rekapi`): text = actor; keyframes = state at time t; engine tweens.
+- **Dirty-rect repaint**: only re-rasterize the text area on keyframe change, not the whole GIF.
 
-## Research-Driven Additions
 
-- [ ] P1 - Add video input import for short clips while preserving the GIF-labeling workflow
-  Why: GIPHY, Kapwing, Gifcurry, and ScreenToGif all accept video sources; GifText currently starts only from animated GIF files.
-  Evidence: GIPHY GIF Maker video/YouTube intake; Kapwing GIF maker; Gifcurry video-to-GIF workflow.
-  Touches: `GifText.py`, input/import module, optional FFmpeg/PyAV dependency decision, README
-  Acceptance: Importing a supported short video lets the user trim/select FPS/size, then continues into the existing frame/keyframe editor.
-  Complexity: L
 
-- [ ] P1 - Ship signed, checksummed Windows release artifacts with a local smoke test
-  Why: The PyInstaller spec builds an exe but has no signing/checksum/release verification flow.
-  Evidence: `GifText.spec`; PyInstaller 6.21.0 changelog and multiprocessing guidance; current `dist/` artifact.
-  Touches: `GifText.spec`, release script, README, CHANGELOG
-  Acceptance: A clean local build produces `GifText.exe`, checksum file, smoke-test result, and signing when a certificate is available.
-  Complexity: M
 
-- [ ] P2 - Add accessibility and focus-order QA for the editor UI
-  Why: The app has a dense inspector and custom canvas/timeline controls but no automated accessibility checks or documented focus behavior.
-  Evidence: `GifText.py:1494`, `GifText.py:1639`, `GifText.py:1688`, `GifText.py:1731`.
-  Touches: `GifText.py`, UI test harness, README accessibility notes
-  Acceptance: Main controls expose accessible names/descriptions, focus order follows the workflow, high-contrast text passes checks, and custom timeline/canvas actions have keyboard-independent button/menu alternatives.
-  Complexity: M
 
-- [ ] P2 - Add an in-app diagnostics bundle for support and bug reports
-  Why: Community GIF tooling support often hinges on encoder/version/path details, and GifText currently has no way to export environment state.
-  Evidence: ScreenToGif encoder configuration issues; `requirements.txt`; `GifText.spec`.
-  Touches: diagnostics module, `GifText.py`, README troubleshooting section
-  Acceptance: A menu/button exports app version, dependency versions, OS, recent log excerpts, selected project metadata, and export settings without embedding user media frames.
-  Complexity: S
 
-- [ ] P2 - Refactor the single-file app behind stable model, render, tracking, project I/O, and worker boundaries
-  Why: `GifText.py` mixes every concern in one 3,256-line file, making workerization, schema validation, and export testing harder.
-  Evidence: `GifText.py`; Rekapi actor/timeline separation.
-  Touches: `GifText.py`, new modules, `test_giftext.py`
-  Acceptance: Existing tests pass after extracting pure model/render/project/tracking functions, and UI code calls those boundaries without behavior changes.
-  Complexity: L

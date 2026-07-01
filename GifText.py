@@ -1323,6 +1323,20 @@ class GifTextApp(QMainWindow):
         self.btn_import_subs.setEnabled(False)
         utility_row.addWidget(self.btn_import_subs)
 
+        self.btn_save_template = QPushButton("Save Template")
+        self.btn_save_template.setObjectName("ghost")
+        self.btn_save_template.setMinimumHeight(36)
+        self.btn_save_template.clicked.connect(self._save_template)
+        self.btn_save_template.setEnabled(False)
+        utility_row.addWidget(self.btn_save_template)
+
+        self.btn_load_template = QPushButton("Load Template")
+        self.btn_load_template.setObjectName("ghost")
+        self.btn_load_template.setMinimumHeight(36)
+        self.btn_load_template.clicked.connect(self._load_template)
+        self.btn_load_template.setEnabled(False)
+        utility_row.addWidget(self.btn_load_template)
+
         # Undo/Redo
         self.btn_undo = QPushButton("Undo")
         self.btn_undo.setObjectName("ghost")
@@ -1939,6 +1953,8 @@ class GifTextApp(QMainWindow):
         self.btn_load_proj.setAccessibleName("Open project")
         self.btn_import_subs.setAccessibleName("Import subtitles")
         self.btn_import_subs.setAccessibleDescription("Import SRT or VTT subtitle file as timed text layers")
+        self.btn_save_template.setAccessibleName("Save layer setup as template")
+        self.btn_load_template.setAccessibleName("Load template onto current GIF")
         self.btn_undo.setAccessibleName("Undo")
         self.btn_redo.setAccessibleName("Redo")
         self.btn_cancel_work.setAccessibleName("Cancel background work")
@@ -2279,6 +2295,8 @@ class GifTextApp(QMainWindow):
             self.btn_export_fit.setEnabled(True)
             self.btn_save_proj.setEnabled(True)
             self.btn_import_subs.setEnabled(True)
+            self.btn_save_template.setEnabled(True)
+            self.btn_load_template.setEnabled(True)
             self.btn_trim.setEnabled(True)
             self.btn_resize.setEnabled(True)
             self.layer_timeline.total_frames = self.total_frames
@@ -3276,6 +3294,60 @@ class GifTextApp(QMainWindow):
             self.statusBar().showMessage(f"Project saved: {os.path.basename(path)}")
         except Exception as e:
             self._show_error("Save project", str(e), path=path, exc=e)
+
+    def _save_template(self):
+        if not self.layers:
+            self.statusBar().showMessage("No layers to save as template")
+            return
+        template_dir = Path.home() / ".giftext" / "templates"
+        template_dir.mkdir(parents=True, exist_ok=True)
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Save Template", str(template_dir / "my_template.giftemplate"),
+            "GifText Template (*.giftemplate)"
+        )
+        if not path:
+            return
+        template = {
+            "schema_version": PROJECT_SCHEMA_VERSION,
+            "version": VERSION,
+            "type": "template",
+            "layers": [layer.to_dict() for layer in self.layers],
+        }
+        try:
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(template, f, indent=2, ensure_ascii=False)
+            self.statusBar().showMessage(f"Template saved: {os.path.basename(path)}")
+        except Exception as e:
+            self._show_error("Save template", str(e), path=path, exc=e)
+
+    def _load_template(self):
+        if not self.gif_pil_frames:
+            self.statusBar().showMessage("Load a GIF first, then apply a template")
+            return
+        template_dir = Path.home() / ".giftext" / "templates"
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Load Template", str(template_dir),
+            "GifText Template (*.giftemplate);;All Files (*)"
+        )
+        if not path:
+            return
+        try:
+            with open(path, encoding="utf-8") as f:
+                template = json.load(f)
+            layers_data = template.get("layers", [])
+            if not isinstance(layers_data, list) or not layers_data:
+                self._show_error("Load template", "Template contains no layers", path=path)
+                return
+            TextLayer._counter = 0
+            new_layers = [TextLayer.from_dict(d) for d in layers_data]
+            self.layers = new_layers
+            self.selected_layer = self.layers[0] if self.layers else None
+            self._rebuild_layer_list()
+            self._snapshot()
+            self._update_all()
+            self.statusBar().showMessage(f"Template applied: {os.path.basename(path)} ({len(new_layers)} layers)")
+        except Exception as e:
+            self._show_error("Load template", str(e), path=path, exc=e)
 
     def _load_project(self):
         path, _ = QFileDialog.getOpenFileName(
