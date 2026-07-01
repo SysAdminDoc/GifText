@@ -1,6 +1,6 @@
 # GifText
 
-![Version](https://img.shields.io/badge/version-v1.4.2-blue) ![License](https://img.shields.io/badge/license-MIT-green) ![Platform](https://img.shields.io/badge/platform-Python-lightgrey)
+![Version](https://img.shields.io/badge/version-v1.5.0-blue) ![License](https://img.shields.io/badge/license-MIT-green) ![Platform](https://img.shields.io/badge/platform-Python-lightgrey)
 
 Add animated text to GIFs for meme creation. Track text labels on moving subjects with keyframe-based animation and smooth interpolation.
 
@@ -95,6 +95,20 @@ Dependencies:
 ```
 
 The executable is written to `dist\GifText.exe`.
+
+### Release Build
+
+The release script cleans build artifacts, runs PyInstaller, generates a SHA-256 checksum, and runs a smoke test:
+
+```bash
+python build_release.py
+```
+
+Options:
+- `--skip-smoke` — skip the launch smoke test
+- `--sign CERT.pfx` — code-sign the exe with a certificate
+
+Outputs: `dist/GifText.exe` and `dist/GifText.exe.sha256`.
 
 ## Troubleshooting
 
