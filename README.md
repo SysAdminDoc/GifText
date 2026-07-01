@@ -82,6 +82,10 @@ Dependencies:
 | Undo / Redo | Ctrl+Z / Ctrl+Y |
 | Save project | Ctrl+S |
 
+## Accessibility
+
+All interactive controls expose accessible names and descriptions for screen readers. The canvas and timeline accept keyboard focus. High-contrast text on the dark theme passes readability checks.
+
 ## Tech Stack
 
 - Python / PyQt6 for the GUI

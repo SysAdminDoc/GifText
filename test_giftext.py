@@ -35,6 +35,7 @@ from GifText import (
 )
 import numpy as np
 from PIL import Image
+from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QPixmap
 from PyQt6.QtWidgets import QApplication
 
@@ -600,6 +601,37 @@ class WorkerTests(unittest.TestCase):
 
         self.assertIsNotNone(font)
         self.assertIsNotNone(rendered.getbbox())
+
+
+class AccessibilityTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QApplication.instance() or QApplication([])
+
+    def test_main_controls_have_accessible_names(self):
+        window = GifTextApp()
+        controls = [
+            window.btn_load, window.btn_export, window.btn_save_proj,
+            window.btn_undo, window.btn_redo, window.btn_play,
+            window.btn_prev, window.btn_next, window.btn_add,
+            window.frame_slider, window.txt_input, window.font_combo,
+            window.spin_size, window.spin_opacity, window.spin_rotation,
+            window.ease_combo, window.btn_color, window.btn_outline_color,
+            window.btn_set_kf, window.btn_del_kf, window.canvas,
+            window.layer_timeline, window.diagnostics_view,
+        ]
+        for ctrl in controls:
+            self.assertTrue(
+                ctrl.accessibleName(),
+                f"{ctrl.__class__.__name__} (objectName={ctrl.objectName()!r}) missing accessible name",
+            )
+        window.close()
+
+    def test_canvas_and_timeline_accept_focus(self):
+        window = GifTextApp()
+        self.assertNotEqual(window.canvas.focusPolicy(), Qt.FocusPolicy.NoFocus)
+        self.assertNotEqual(window.layer_timeline.focusPolicy(), Qt.FocusPolicy.NoFocus)
+        window.close()
 
 
 class DiagnosticsBundleTests(unittest.TestCase):
