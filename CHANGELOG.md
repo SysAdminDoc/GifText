@@ -2,6 +2,25 @@
 
 All notable changes to GifText will be documented in this file.
 
+## [v1.5.1] - 2026-07-01
+
+- Fixed trim not adjusting layer keyframe indices, frame_in/out, and path frame ranges by the trim offset.
+- Fixed playback timing using the wrong frame's delay (off-by-one in frame advance).
+- Fixed crash on malformed color hex strings during PIL export rendering.
+- Fixed frame data sync when corrupt frame bytes are skipped during GIF load.
+- Fixed undo/redo losing the user's layer selection.
+- Fixed empty-text layers having a zero-width click target.
+- Fixed CLI render crash on single-frame source images.
+- Fixed canvas resize setting minimum size to tiny frame dimensions.
+- Fixed export finish handler crash when output file is missing.
+- Removed 100+ lines of dead tracking code duplicated from workers module.
+- Cleaned unused imports (cv2, math, numpy no longer needed in UI module).
+- Added layer deletion status feedback with undo hint.
+- Added validation for recent files JSON and frame byte sizes.
+- Added 7 regression tests for edge cases (empty text, malformed colors, undo/redo, stagger sanitization).
+- Fixed microcopy: canvas empty state and hint label now say "Load Media" consistently.
+- Fixed inspector section numbering (Range Tools is now section 6).
+
 ## [v1.5.0] - 2026-07-01
 
 - Added `build_release.py` release build script with SHA-256 checksum generation and smoke test.

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-GifText v1.5.0 - Animated GIF Text Editor
+GifText v1.5.1 - Animated GIF Text Editor
 Full-featured meme text animator with keyframe animation, onion skinning,
 undo/redo, project save/load, drag-resize, text presets, and more.
 """

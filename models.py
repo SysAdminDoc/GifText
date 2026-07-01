@@ -10,7 +10,7 @@ from animation import (
     apply_easing_curve,
 )
 
-VERSION = "1.5.0"
+VERSION = "1.5.1"
 PROJECT_SCHEMA_VERSION = 2
 
 LAYER_COLORS = [
