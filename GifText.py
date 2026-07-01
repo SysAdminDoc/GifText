@@ -37,16 +37,15 @@ from PyQt6.QtWidgets import (
     QFontComboBox, QGroupBox, QGridLayout, QSizePolicy, QScrollArea,
     QPlainTextEdit, QMenu, QMessageBox
 )
-from PyQt6.QtCore import Qt, QTimer, QPointF, QRectF, pyqtSignal, QSize, QMimeData, QObject, QThread, pyqtSlot
+from PyQt6.QtCore import Qt, QTimer, QPointF, QRectF, pyqtSignal, QSize, QThread
 from PyQt6.QtGui import (
-    QIcon, QPixmap, QImage, QColor, QPainter, QFont, QPen, QBrush,
-    QFontMetrics, QPainterPath, QCursor, QWheelEvent, QAction, QLinearGradient
+    QIcon, QPixmap, QImage, QColor, QPainter, QFont, QPen,
+    QFontMetrics, QPainterPath, QCursor, QAction, QLinearGradient
 )
 from PIL import Image
 
 from animation import (
     EASING_CURVES,
-    _clamp01,
     _normalize_path_points,
     apply_easing_curve,
     apply_staggered_text,
@@ -72,9 +71,7 @@ from rendering import (
 from project import (
     ProjectValidationError,
     build_project_payload,
-    frame_for_time,
     parse_subtitle_text,
-    parse_subtitle_timestamp,
     subtitle_entries_to_layers,
     validate_project_payload,
 )
@@ -1125,10 +1122,11 @@ class LayerWidget(QFrame):
         dot.setStyleSheet(f"background-color: {layer.accent}; border-radius: 6px; border: none;")
         lo.addWidget(dot)
 
-        vis = QPushButton("ON" if layer.visible else "OFF")
+        vis_label = "●" if layer.visible else "○"
+        vis = QPushButton(vis_label)
         vis.setObjectName("layerAction")
-        vis.setFixedSize(42, 26)
-        vis.setToolTip("Toggle layer visibility")
+        vis.setFixedSize(30, 26)
+        vis.setToolTip("Visible" if layer.visible else "Hidden")
         vis.clicked.connect(lambda: (
             setattr(layer, 'visible', not layer.visible),
             self.visibility_changed.emit(layer.id, layer.visible)
@@ -3494,12 +3492,6 @@ class GifTextApp(QMainWindow):
             self.statusBar().showMessage(f"Exported: {os.path.basename(output_path)} ({size_mb:.1f} MB)")
         except OSError:
             self.statusBar().showMessage(f"Exported: {os.path.basename(output_path)}")
-
-    def _render_text_pil(self, frame, layer, frame_idx):
-        return render_text_pil(frame, layer, frame_idx, self.total_frames)
-
-    def _get_pil_font(self, layer, size):
-        return get_pil_font(layer, size, layer.text)
 
 
 # ============================================================================
