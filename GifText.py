@@ -1217,9 +1217,14 @@ class GifTextApp(QMainWindow):
         self._recent_files: list[str] = []
         self._load_recent()
 
+        self.autosave_timer = QTimer(self)
+        self.autosave_timer.timeout.connect(self._autosave)
+        self.autosave_timer.start(30000)
+
         self._build_ui()
         self._setup_accessibility()
         self._flush_diagnostic_panel()
+        self._check_autosave_recovery()
 
     def _build_ui(self):
         central = QWidget()
@@ -3130,6 +3135,49 @@ class GifTextApp(QMainWindow):
         except Exception as e:
             self._show_error("Import subtitles", str(e), path=path, exc=e)
 
+    def _autosave_path(self):
+        return Path.home() / ".giftext" / "autosave.giftext"
+
+    def _autosave(self):
+        if not self.gif_path or not self.layers:
+            return
+        try:
+            path = self._autosave_path()
+            path.parent.mkdir(parents=True, exist_ok=True)
+            project = build_project_payload(self.gif_path, self.layers, str(path))
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(project, f, separators=(",", ":"), ensure_ascii=False)
+        except Exception:
+            pass
+
+    def _check_autosave_recovery(self):
+        path = self._autosave_path()
+        if not path.exists():
+            return
+        try:
+            with open(path, encoding="utf-8") as f:
+                project = json.load(f)
+            gif_path = project.get("gif_path", "")
+            if gif_path and os.path.isfile(gif_path) and project.get("layers"):
+                reply = QMessageBox.question(
+                    self, "Recover Session",
+                    f"A previous session was found.\nSource: {os.path.basename(gif_path)}\n\nRecover it?",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                )
+                if reply == QMessageBox.StandardButton.Yes:
+                    project["project_path"] = str(path)
+                    self._load_gif_from_path(gif_path, project)
+                    return
+            path.unlink(missing_ok=True)
+        except Exception:
+            path.unlink(missing_ok=True)
+
+    def _clear_autosave(self):
+        try:
+            self._autosave_path().unlink(missing_ok=True)
+        except Exception:
+            pass
+
     def _save_project(self):
         if not self.gif_path:
             return
@@ -3143,6 +3191,7 @@ class GifTextApp(QMainWindow):
         try:
             with open(path, 'w', encoding='utf-8') as f:
                 json.dump(project, f, indent=2, ensure_ascii=False)
+            self._clear_autosave()
             self.statusBar().showMessage(f"Project saved: {os.path.basename(path)}")
         except Exception as e:
             self._show_error("Save project", str(e), path=path, exc=e)
